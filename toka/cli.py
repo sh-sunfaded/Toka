@@ -129,7 +129,7 @@ def cmd_enumerate(args) -> int:
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="toka",
-        description="VM bytecode toolkit (SPN/rol13/Huffman pipeline)")
+        description="KONN packer format toolkit (SPN/rol13/Huffman pipeline)")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     def add_image(sp):
