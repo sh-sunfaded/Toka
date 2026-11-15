@@ -1,11 +1,11 @@
 """
 drmvm.vmcode — VMバイトコード層（Huffman復号 + LZSS展開エンジン）
 
-3段パイプラインの第3段（フェーズAF/AH確定）:
+3段パイプラインの第3段:
 
   S（rol13出力のバイト列）はビットストリーム（LSB-first）として読まれ、
-  Huffman 1シンボル復号器（0x1400c35e0 相当）で1命令ずつフェッチされ、
-  LZSS型展開エンジン（0x1400c3c80 相当）が平文x86を組立出力する。
+  Huffman 1シンボル復号器で1命令ずつフェッチされ、
+  LZSS型展開エンジンが平文x86を組立出力する。
 
 Huffmanテーブル形式（3バイト/エントリ、ルート256エントリ）:
     entry = (word: uint16 LE, extra: uint8)
@@ -14,7 +14,7 @@ Huffmanテーブル形式（3バイト/エントリ、ルート256エントリ�
       - 葉   : extra = 実コード長（<=8）。コード = 8bit索引の下位 extra ビット。
       - ノード: 8ビット消費後、child = (word & 0x7fff) + 次ビット で降下。
     ※ byte+2 の意味（深度/開始bit索引）は降下後の葉では消費しない解釈。
-      実装は archive-ah/vm.py・huffenc.py と突合せで検証すること。
+      実装は既存実装との突合せで検証すること。
     ※ 未使用エントリは (0,0)。base=0 への降下は即エラーにする
       （ゼロ埋めテーブルで無限ループする事故を防ぐ — 実測で発見済み）。
 
@@ -22,7 +22,7 @@ VM命令セット（シンボル値 = mode | data。mode = sym & 0x300, data = s
     0x000 リテラル   : data を1バイト出力
     0x100 acc組立   : acc==0 → acc=data / それ以外は acc=(acc<<8)|data
                       （解釈: acc>=0x100 の状態で更に組立命令が来ると失敗
-                        = 最大2バイト組立。AFメモ「acc>=0x100で失敗」の解釈）
+                        = 最大2バイト組立の実測解釈）
     0x200 RLE       : count=(acc==0?1:acc)、unit=data∈{1,2,4} で
                       直前 unit バイトを count 回複写。accは消費して0に。
     0x300 LZ        : len=data、dist=acc+data で履歴から len バイト複写
@@ -30,7 +30,7 @@ VM命令セット（シンボル値 = mode | data。mode = sym & 0x300, data = s
     終端: 出力が size2 に到達した時点で成功（フェッチ失敗/履歴不足は失敗）。
 
 acc の持続性: リテラルでは acc を変更しない。0x200/0x300 が消費して 0 にする。
-（accのクリア条件は実機未確定 — 実ダンプでの検証対象。）
+（accのクリア条件は実データ未確定 — 実ダンプでの検証対象。）
 """
 from __future__ import annotations
 
@@ -118,7 +118,7 @@ class HuffmanTable:
         """シンボル -> (コードビット LSB-first 整数, 長さ) の辞書。
 
         テーブルを逆読みして全シンボルの符号を復元する
-        （huffenc 逆構築。ブートストラップ鍵回収の基盤）。
+        （逆構築。ブートストラップ鍵回収の基盤）。
         未使用エントリ (word=0) は辿らない。
         """
         out: Dict[int, Tuple[int, int]] = {}
@@ -236,8 +236,9 @@ def simulate_command(mode: int, data: int, out: bytes, acc: int,
     """単一VM命令の効果を純関数として計算する。
 
     戻り値: (ok, emit_bytes, new_acc)。
-    expand() と enumerate_prefixes_from_reference() が同一の意味論を
-    共有するための単一の真実源。
+    expand() と enumerate_prefixes_from_reference()（および
+    pipeline の段階的検証）が同一の意味論を共有するための
+    単一の真実源。
     """
     if mode == 0x000:  # リテラル
         if len(out) + 1 > out_limit:
@@ -280,7 +281,7 @@ class ExpandResult(NamedTuple):
 
 
 def expand(stream: bytes, out_size: int, table: HuffmanTable) -> ExpandResult:
-    """LZSS型VM展開エンジン（0x1400c3c80 相当）。
+    """LZSS型VM展開エンジン。
 
     stream = rol13出力 S。out_size = 記述子 size2（展開後サイズ）。
     出力が out_size 到達で成功（ストリームの余りは報告のみ）。
@@ -311,9 +312,9 @@ def enumerate_prefixes_from_reference(table: HuffmanTable, ref: bytes,
                                       min_bits: int = 32) -> List[int]:
     """既知展開結果と整合するコマンド列のDFS列挙 → 先頭min_bits候補を網羅。
 
-    既知平文ブートストラップ（第58次AH開発）の中核。
-    「v1d先頭を再現するコマンド列」だけを辿るため、全シンボル組み合わせの
-    爆発は起きない（実測14028候補 → 1命中）。
+    既知平文ブートストラップの中核。
+    「既知展開結果の先頭を再現するコマンド列」だけを辿るため、
+    全シンボル組み合わせの爆発は起きない（実測では数千候補に収まる）。
 
     各状態 (bits, nbits, out, acc) から:
       - 全シンボルの効果を simulate_command で計算

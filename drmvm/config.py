@@ -1,12 +1,12 @@
 """
-drmvm.config — ゲーム別設定（プロファイル）
+drmvm.config — 対象別設定（プロファイル）
 
-同一保護（学マス DMM版 / PCR / ウマ娘系）は鍵素材・テーブル・閾値が
-異なるだけでパイプライン構造は共通。全ゲーム依存値はここに集約する。
+同じ構造の保護方式は鍵素材・テーブル・閾値が異なるだけで
+パイプライン構造は共通。対象依存の実測値はすべてここに集約する。
 
-GAKUMAS プロファイルの値はすべて学マス実測（フェーズAF/AG/AH、
-2026-11 版 md5 f4859cea1de70fa17ab0ca2cfb36880d に対応）。
-他タイトルを攻略する場合は実測値を調査して GameConfig を1つ追加する。
+SAMPLE プロファイルの値は実測データに基づく（ビルド対象の
+特定バージョンに対応）。新しい対象を扱う場合は実測値を調査して
+GameConfig を1つ追加する。
 """
 from __future__ import annotations
 
@@ -23,11 +23,11 @@ class GameConfig:
     spn_key_low: Tuple[int, int] = (0x1054C0, 0xF4)
     huff_table_high: Tuple[int, int] = (0x1055B4, 0xCA2)
     huff_table_low: Tuple[int, int] = (0x104800, 0xCC0)
-    expand_threshold: int = 0xA8000  # dword@0x1400ba2f4
+    expand_threshold: int = 0xA8000
     sbox_rvas: Tuple[int, ...] = (0xC82E0, 0xC86E0, 0xC8AE0, 0xC8EE0)
-    rol13_key: Optional[int] = None  # 実測済みならここに（学マス=0xaf27a866）
+    rol13_key: Optional[int] = None  # 実測済みならここに設定
     descriptors: Dict[str, Tuple[int, int, int, int]] = field(default_factory=dict)
-    mailslot_name: str = ""
+    mailslot_name: str = ""  # 対象のスロット名（必要なら実測値を設定）
     # Stage1（自己復号パッカー）関連
     stage1_region: Tuple[int, int] = (0xA8000, 0xEC000)
     stage1_oep: int = 0x1400AA8A0
@@ -47,17 +47,16 @@ class GameConfig:
         return self.descriptors[name]
 
 
-GAKUMAS = GameConfig(
-    name="gakumas",
-    rol13_key=0xAF27A866,  # 第58次AH回収値（実行時導出・決定論的）
+SAMPLE = GameConfig(
+    name="sample",
+    rol13_key=0xAF27A866,  # 既知平文ブートストラップで回収した実測値
     descriptors={
-        # idx13: 280チェック実行部（REF）。dump1格納形 ↔ v1d展開形の既知対
+        # 既知ブロック: 格納形 ↔ 展開形の実測対
         "idx13": (0xB39EC, 0xC12, 0xB39EC, 0x14BC),
     },
-    mailslot_name="ErrLog-Pec02AF",
 )
 
-PROFILES: Dict[str, GameConfig] = {"gakumas": GAKUMAS}
+PROFILES: Dict[str, GameConfig] = {"sample": SAMPLE}
 
 
 def get_profile(name: str) -> GameConfig:
