@@ -37,44 +37,44 @@ Git からではなくソースツリーを直接使う場合は `PYTHONPATH=.` 
 
 | モジュール | 機能 |
 | --- | --- |
-| `drmvm/ciphers.py` | SPN連鎖 + rol13（正逆・鍵導出式） |
-| `drmvm/vmcode.py` | Huffman表（復号・符号再構築・構築）+ LZSS型展開 + 先頭列挙DFS |
-| `drmvm/pipeline.py` | 3段統合 + 既知平文ブートストラップ鍵回収（段階的棄却） |
-| `drmvm/fastpath.py` | 任意依存 (NumPy) のベクトル化高速パス |
-| `drmvm/config.py` | 対象別プロファイル（鍵素材・表・閾値の集約） |
-| `drmvm/mailslot.py` | mailslotメッセージ復号 + k0範囲走査 |
-| `drmvm/unpack.py` | Stage1パッカー記述子走査・ローリングキー・Unicorn実行 |
-| `drmvm/disasm.py` | movabs隠蔽コード検出・jmp-over-jmp・再帰下降disasm |
-| `drmvm/patches.py` | 既知バイトパターンの走査と検証（leaフィルタ付き） |
-| `drmvm/cli.py` | コマンドライン（`python -m drmvm.cli`） |
+| `toka/ciphers.py` | SPN連鎖 + rol13（正逆・鍵導出式） |
+| `toka/vmcode.py` | Huffman表（復号・符号再構築・構築）+ LZSS型展開 + 先頭列挙DFS |
+| `toka/pipeline.py` | 3段統合 + 既知平文ブートストラップ鍵回収（段階的棄却） |
+| `toka/fastpath.py` | 任意依存 (NumPy) のベクトル化高速パス |
+| `toka/config.py` | 対象別プロファイル（鍵素材・表・閾値の集約） |
+| `toka/mailslot.py` | mailslotメッセージ復号 + k0範囲走査 |
+| `toka/unpack.py` | Stage1パッカー記述子走査・ローリングキー・Unicorn実行 |
+| `toka/disasm.py` | movabs隠蔽コード検出・jmp-over-jmp・再帰下降disasm |
+| `toka/patches.py` | 既知バイトパターンの走査と検証（leaフィルタ付き） |
+| `toka/cli.py` | コマンドライン（`python -m toka.cli`） |
 
 ## CLI 使用例
 
 ```bash
 # VMブロックを3段で展開（鍵はプロファイル値）
-python -m drmvm.cli decrypt-block dump1.bin --desc 0xb39ec:0xc12:0xb39ec:0x14bc --out ref.bin
+python -m toka.cli decrypt-block dump1.bin --desc 0xb39ec:0xc12:0xb39ec:0x14bc --out ref.bin
 
 # 既知平文から rol13 鍵 K を回収
-python -m drmvm.cli recover-key dump1.bin --desc 0xb39ec:0xc12:0xb39ec:0x14bc --ref ref.bin
+python -m toka.cli recover-key dump1.bin --desc 0xb39ec:0xc12:0xb39ec:0x14bc --ref ref.bin
 
 # mailslot暗号ボディ復号（k0自動走査）
-python -m drmvm.cli mailslot body.bin --out plain.txt
+python -m toka.cli mailslot body.bin --out plain.txt
 
 # 既知バイトパターンの走査と検証
-python -m drmvm.cli scan-patches dump1.bin
+python -m toka.cli scan-patches dump1.bin
 
 # movabs即値に隠された実コードの検出
-python -m drmvm.cli find-movabs code.bin --base 0x1400b000
+python -m toka.cli find-movabs code.bin --base 0x1400b000
 
 # Stage1記述子走査
-python -m drmvm.cli stage0 packed.bin
+python -m toka.cli stage0 packed.bin
 ```
 
 ## Python API
 
 ```python
-from drmvm import Descriptor, Pipeline, load_image
-from drmvm.config import PROFILES
+from toka import Descriptor, Pipeline, load_image
+from toka.config import PROFILES
 
 profile = next(iter(PROFILES.values()))  # 同梱のサンプルプロファイル
 pipe = Pipeline(profile, load_image("dump1.bin"))
@@ -86,7 +86,7 @@ k = pipe.recover_key(desc, known_expanded_block)
 ## パフォーマンス（任意依存）
 
 NumPy が導入されている環境では、ホットパスが自動的にベクトル化実装
-（`drmvm/fastpath.py`）に切り替わる。導入していなくても結果は同一
+（`toka/fastpath.py`）に切り替わる。導入していなくても結果は同一
 （フォールバックは純Python実装）:
 
 - **rol13 fwd/inv** — 鍵ストリーム `esi_i = K + i*(i-1)/2` の閉形式を
@@ -139,7 +139,7 @@ NumPy が導入されている環境では、ホットパスが自動的にベ�
 ## テスト
 
 ```bash
-python3 tests/test_drmvm.py    # 33チェック・合成データのみ・外部ダンプ不要
+python3 tests/test_toka.py    # 33チェック・合成データのみ・外部ダンプ不要
 ```
 
 NumPy が導入された環境では、ベクトル化実装と純Python実装の
