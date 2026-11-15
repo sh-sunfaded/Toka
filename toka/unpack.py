@@ -1,11 +1,11 @@
 """
-drmvm.unpack — Stage1 自己復号パッカーの脱壳
+toka.unpack — Stage1 自己復号パッカーの脱壳
 
 パッカー構造（ダンプ解析による実測ベース）:
   パック済みデータ --MapViewOfFile--> descriptor(8×i32, sig 0x4E4E4F4B,
   stride 0x20, 実行時にスタックへ復号) --> ローリングキー復号 -->
   Stage1 (RVA 0xa8000..0xec000, OEP 0x1400aa8a0) --> Stage2 = バイトコードVM
-  （VEH依存のオンデマンド復号で静的エミュレーション不可 → drmvm.pipeline で扱う）
+  （VEH依存のオンデマンド復号で静的エミュレーション不可 → toka.pipeline で扱う）
 
 ローリングキー復号（dwordストリーム）:
     key0 = (~size + initKey) & 0xffffffff

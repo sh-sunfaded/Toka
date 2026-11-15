@@ -1,5 +1,5 @@
 """
-drmvm.vmcode — VMバイトコード層（Huffman復号 + LZSS展開エンジン）
+toka.vmcode — VMバイトコード層（Huffman復号 + LZSS展開エンジン）
 
 3段パイプラインの第3段:
 

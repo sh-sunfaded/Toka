@@ -1,5 +1,5 @@
 """
-drmvm.fastpath — 任意依存 (NumPy) による高速化レイヤ
+toka.fastpath — 任意依存 (NumPy) による高速化レイヤ
 
 コアは一貫して標準ライブラリのみで動作する。NumPy が導入されている
 環境では暗号層のホットパスが自動的にベクトル化実装に切り替わる。
@@ -19,7 +19,7 @@ drmvm.fastpath — 任意依存 (NumPy) による高速化レイヤ
       一括して進めることで、Pythonループを排除する。
   - ブートストラップ鍵回収
       候補 × 先頭ウィンドウの rol13 を一括計算し、先頭数シンボルで
-      棄却する（drmvm.pipeline の段階的検証と組み合わせる）。
+      棄却する（toka.pipeline の段階的検証と組み合わせる）。
 
 ベクトル化しない箇所（逐次依存が本質的）:
 
@@ -42,7 +42,7 @@ M32 = 0xFFFFFFFF
 
 def _require_numpy() -> None:
     if _np is None:
-        raise RuntimeError("drmvm.fastpath requires numpy (not installed)")
+        raise RuntimeError("toka.fastpath requires numpy (not installed)")
 
 
 def _u32(v: int):

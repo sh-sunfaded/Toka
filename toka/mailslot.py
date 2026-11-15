@@ -1,5 +1,5 @@
 """
-drmvm.mailslot — mailslotメッセージボディの復号と鍵回収
+toka.mailslot — mailslotメッセージボディの復号と鍵回収
 
 Windows mailslot 大型メッセージの暗号化ボディ:
     c[i] = p[i] ^ (k & 0xff)
@@ -12,7 +12,7 @@ Windows mailslot 大型メッセージの暗号化ボディ:
 ※ i の更新タイミング（処理前/処理後）の解釈は本実装で固定しており、
   実データと1バイトずれた場合は update の i を調整すること。
 
-NumPy が導入されている環境では recover_k0 は drmvm.fastpath の
+NumPy が導入されている環境では recover_k0 は toka.fastpath の
 ベクトル化走査に自動委譲される（結果は等価・testsで検証）。
 """
 from __future__ import annotations
@@ -64,7 +64,7 @@ def recover_k0(body: bytes, known_prefix: bytes = DEFAULT_KNOWN_PREFIX,
                lo: int = DEFAULT_K0_LO, hi: int = DEFAULT_K0_HI) -> Optional[int]:
     """既知平文で k0 を範囲走査により回収する。見つからなければ None。
 
-    NumPy があれば候補軸のベクトル化走査を使う（drmvm.fastpath）。
+    NumPy があれば候補軸のベクトル化走査を使う（toka.fastpath）。
     """
     if len(known_prefix) == 0 or len(body) == 0:
         raise ValueError("need at least one known plaintext byte")

@@ -1,5 +1,5 @@
 """
-drmvm.disasm — 難読化対応 x86-64 逆アセンブル支援
+toka.disasm — 難読化対応 x86-64 逆アセンブル支援
 
 対象の平文x86は線形disasm不能（実測の教訓）:
   (1) jmp-over-jmp: 実データをまたぐ短jmpで線形逆アセンブルを崩す
@@ -15,7 +15,7 @@ capstone（あれば）で行う。capstone が無い環境でもパターン検
 即値抽出は動作する。
 
 使用例:
-    from drmvm.disasm import find_movabs, decode_imm64
+    from toka.disasm import find_movabs, decode_imm64
     for site in find_movabs(code):
         for insn in decode_imm64(site.imm, addr=base + site.offset):
             print(f"{insn.address:#x}  {insn.mnemonic} {insn.op_str}")

@@ -1,5 +1,5 @@
 """
-drmvm.pipeline — 3段パイプライン統合と鍵回収（ブートストラップ）
+toka.pipeline — 3段パイプライン統合と鍵回収（ブートストラップ）
 
   格納形 C --SPN chain_fwd--> M --rol13 fwd(K)--> S --expand--> 平文x86
 
@@ -26,7 +26,7 @@ Huffman表 0x1055b4)、未満 → 低域ペア (0x1054c0 / 0x104800)。
     - ウィンドウを使い切った場合のみフル検証
   の2段で処理する。ゴミ候補のほとんどは最初の数シンボルで棄却される
   ため、候補数にほぼ比例した高速化となる（結果は単純実装と同一）。
-  NumPy があれば先頭ウィンドウの一括計算に drmvm.fastpath を使う。
+  NumPy があれば先頭ウィンドウの一括計算に toka.fastpath を使う。
 """
 from __future__ import annotations
 

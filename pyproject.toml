@@ -3,7 +3,7 @@ requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "drmvm"
+name = "toka"
 version = "0.2.0"
 description = "Toolkit for analyzing embedded VM bytecode formats (SPN chain, rolling dword layer, Huffman/LZSS VM)"
 readme = "README.md"
@@ -22,4 +22,4 @@ emu = ["unicorn>=2.0"]
 disasm = ["capstone>=5.0"]
 
 [tool.setuptools]
-packages = ["drmvm"]
+packages = ["toka"]

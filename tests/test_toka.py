@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""drmvm 自動検証スイート。
+"""toka 自動検証スイート。
 
 純標準ライブラリのみ・外部ダンプ不要で、パッケージ全体の意味論を
 合成データで検証する（実データとの突合はREADMEの実機検証チェックリスト参照）。
 
-NumPy が導入されている環境では、ベクトル化実装（drmvm.fastpath）と
+NumPy が導入されている環境では、ベクトル化実装（toka.fastpath）と
 純Python実装の等価性検証も自動実行される。無い環境ではスキップされる。
 
-実行:  python3 tests/test_drmvm.py   （終了コード 0=全PASS）
+実行:  python3 tests/test_toka.py   （終了コード 0=全PASS）
 """
 import os
 import random
@@ -17,17 +17,17 @@ import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from drmvm import (Descriptor, SAMPLE, SAMPLE_PATCH_G, HuffmanTable, Patch,
+from toka import (Descriptor, SAMPLE, SAMPLE_PATCH_G, HuffmanTable, Patch,
                    Pipeline, Rol13, SPN, build_table, decode_body, decrypt_stream,
                    encode_body, encrypt_stream, enumerate_prefixes_from_reference,
                    expand, find_descriptors, find_jmp_over_jmp, find_movabs,
                    filter_patch_l_by_lea, find_patch_l_candidates, get_profile,
                    imm64_le, load_image, recover_k0, recover_rol13_key,
                    scan_pattern, simulate_command, verify_patch, verify_patchset)
-from drmvm.ciphers import rol13_fwd_pure, rol13_inv_pure, rol32, ror32
-from drmvm.fastpath import HAVE_NUMPY
-from drmvm.pipeline import _recover_naive
-from drmvm.vmcode import BitReader, encode_stream
+from toka.ciphers import rol13_fwd_pure, rol13_inv_pure, rol32, ror32
+from toka.fastpath import HAVE_NUMPY
+from toka.pipeline import _recover_naive
+from toka.vmcode import BitReader, encode_stream
 
 M32 = 0xFFFFFFFF
 TESTS = []
@@ -305,7 +305,7 @@ def test_recover_key_staged_equivalence():
 @test
 def test_fastpath_rol13_equivalence():
     requires_numpy()
-    from drmvm import fastpath
+    from toka import fastpath
     rng = random.Random(0xC0FFEE)
     for size in (0, 1, 3, 4, 15, 16, 63, 64, 255, 256, 1000):
         data = bytes(rng.randrange(256) for _ in range(size))
@@ -317,7 +317,7 @@ def test_fastpath_rol13_equivalence():
 @test
 def test_fastpath_rol13_batch_equivalence():
     requires_numpy()
-    from drmvm import fastpath
+    from toka import fastpath
     rng = random.Random(0xBEEF)
     data = bytes(rng.randrange(256) for _ in range(100))
     keys = [0, 1, 0xAF27A866, 0x9E3779B9, 0xFFFFFFFF]
@@ -330,7 +330,7 @@ def test_fastpath_rol13_batch_equivalence():
 @test
 def test_fastpath_spn_chain_equivalence():
     requires_numpy()
-    from drmvm import fastpath
+    from toka import fastpath
     rng = random.Random(42)
     sboxes = [[rng.randrange(1 << 32) for _ in range(256)] for _ in range(4)]
     key = b"\x00\x01\x0e\x00" + bytes(rng.randrange(256)
@@ -347,7 +347,7 @@ def test_fastpath_spn_chain_equivalence():
 @test
 def test_fastpath_recover_k0_equivalence():
     requires_numpy()
-    from drmvm import fastpath
+    from toka import fastpath
     k0 = 0x1234
     lo, hi = 0x1000, 0x1800
     body = encode_body(b"-- Version\r\nhello world", k0)
@@ -480,18 +480,18 @@ def test_find_movabs_vector():
     except ImportError:
         have_cs = False
     if have_cs:
-        insns = drmvm_decode(s.imm)
+        insns = toka_decode(s.imm)
         assert insns[0].mnemonic == "add"
     else:
         try:
-            drmvm_decode(s.imm)
+            toka_decode(s.imm)
             assert False
         except RuntimeError as e:
             assert "4883c4084c8b5b10" in str(e)
 
 
-def drmvm_decode(imm):
-    from drmvm import decode_imm64
+def toka_decode(imm):
+    from toka import decode_imm64
     return decode_imm64(imm)
 
 
@@ -554,7 +554,7 @@ def test_cli_mailslot_smoke():
         with open(body_path, "wb") as f:
             f.write(encode_body(plain, k0))
         repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        rc = subprocess.call([sys.executable, "-m", "drmvm.cli", "mailslot",
+        rc = subprocess.call([sys.executable, "-m", "toka.cli", "mailslot",
                               body_path, "--k0", hex(k0), "--out", out_path],
                              cwd=repo)
         assert rc == 0

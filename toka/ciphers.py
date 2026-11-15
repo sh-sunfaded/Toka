@@ -1,5 +1,5 @@
 """
-drmvm.ciphers — 暗号層（SPN連鎖 + rol13ローリング層）
+toka.ciphers — 暗号層（SPN連鎖 + rol13ローリング層）
 
 3段パイプラインの下位2層の一般化実装:
 
@@ -25,10 +25,10 @@ T はデータ駆動: ラウンド数 = word[key+2] >> 1（0x000e → 7ラウン
 はそのまま使える。
 
 鍵素材・S-box・ラウンド数はすべて GameConfig で与える
-（実測値は drmvm.config.SAMPLE 参照）。
+（実測値は toka.config.SAMPLE 参照）。
 
 NumPy が導入されている環境では fwd/inv/chain_fwd は自動的に
-drmvm.fastpath のベクトル化実装に委譲される（結果は等価・
+toka.fastpath のベクトル化実装に委譲される（結果は等価・
 tests で検証）。純実装は rol13_fwd_pure 等として参照可能。
 """
 from __future__ import annotations

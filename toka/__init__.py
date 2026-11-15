@@ -1,5 +1,5 @@
 """
-drmvm — 仮想マシン形式の解析ツールキット
+toka — 仮想マシン形式の解析ツールキット
 
 パックされたx86イメージ内部で動作する独自の仮想マシン形式の解析で
 確立した解読技法を、特定の製品に依存しない形に一般化したパッケージ。
@@ -16,11 +16,11 @@ drmvm — 仮想マシン形式の解析ツールキット
     unpack     Stage1自己復号パッカー脱壳（ローリングキー + Unicorn）
     disasm     難読化x86解析支援（movabs隠蔽コード・jmp-over-jmp）
     patches    既知バイトパターン定義 + 適用検証
-    cli        コマンドライン（python -m drmvm.cli）
+    cli        コマンドライン（python -m toka.cli）
 
 使用例:
-    from drmvm import Descriptor, Pipeline, load_image
-    from drmvm.config import PROFILES
+    from toka import Descriptor, Pipeline, load_image
+    from toka.config import PROFILES
     profile = next(iter(PROFILES.values()))
     pipe = Pipeline(profile, load_image("dump.bin"))
     plain = pipe.decrypt_block(Descriptor.parse("0xb39ec:0xc12:0xb39ec:0x14bc"))

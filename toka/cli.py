@@ -1,21 +1,21 @@
 """
-drmvm.cli — コマンドラインインターフェース
+toka.cli — コマンドラインインターフェース
 
 使用例:
     # 3段パイプラインでVMブロックを展開（鍵既知）
-    python -m drmvm.cli decrypt-block dump.bin --desc 0xb39ec:0xc12:0xb39ec:0x14bc --out ref.bin
+    python -m toka.cli decrypt-block dump.bin --desc 0xb39ec:0xc12:0xb39ec:0x14bc --out ref.bin
 
     # 既知平文ブートストラップで鍵Kを回収
-    python -m drmvm.cli recover-key dump.bin --desc 0xb39ec:0xc12:0xb39ec:0x14bc --ref ref_block.bin
+    python -m toka.cli recover-key dump.bin --desc 0xb39ec:0xc12:0xb39ec:0x14bc --ref ref_block.bin
 
     # mailslot暗号ボディの復号（k0範囲走査）
-    python -m drmvm.cli mailslot body.bin --out plain.txt
+    python -m toka.cli mailslot body.bin --out plain.txt
 
     # 既知パターン候補の走査 + サンプルパッチ検証
-    python -m drmvm.cli scan-patches dump.bin
+    python -m toka.cli scan-patches dump.bin
 
     # movabs隠れコードの検出
-    python -m drmvm.cli find-movabs code.bin
+    python -m toka.cli find-movabs code.bin
 """
 from __future__ import annotations
 
@@ -146,7 +146,7 @@ def cmd_enumerate(args) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        prog="drmvm",
+        prog="toka",
         description="VM bytecode toolkit (SPN/rol13/Huffman pipeline)")
     sub = p.add_subparsers(dest="cmd", required=True)
 
