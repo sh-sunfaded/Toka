@@ -1,11 +1,12 @@
 """
 toka.unpack — Stage1 自己復号パッカーの脱壳
 
-パッカー構造（ダンプ解析による実測ベース）:
+パッカー構造（形式一般化）:
   パック済みデータ --MapViewOfFile--> descriptor(8×i32, sig 0x4E4E4F4B,
   stride 0x20, 実行時にスタックへ復号) --> ローリングキー復号 -->
-  Stage1 (RVA 0xa8000..0xec000, OEP 0x1400aa8a0) --> Stage2 = バイトコードVM
-  （VEH依存のオンデマンド復号で静的エミュレーション不可 → toka.pipeline で扱う）
+  Stage1（復号済みコード領域・OEP はプロファイル指定） -->
+  Stage2 = バイトコードVM（VEH依存のオンデマンド復号で静的エミュレーション
+  不可 → toka.pipeline で扱う）
 
 ローリングキー復号（dwordストリーム）:
     key0 = (~size + initKey) & 0xffffffff
@@ -77,11 +78,11 @@ def find_descriptors(data: bytes, sig: int = DESCRIPTOR_SIG,
 class Stage1Runner:
     """Unicorn による Stage1 エミュレーション → 復号済みイメージの採取。
 
-    実績: OEP 0x1400aa8a0 到達、Stage1 RVA 0xa8000..0xec000 を復号。
+    image_base / oep / region は GameConfig（toka.config）から与える。
     Unicorn が無い環境では RuntimeError。
-    注意（実測教訓）: コードフック内の RIP 直接書換のみ有効（begin=end+1）、
-    INTR フック redirect / emu_stop 後 resume は不可、0x7FF00000 番地は
-    マップ不可。
+    注意（エミュレーション実装の教訓）: コードフック内の RIP 直接書換のみ
+    有効（begin=end+1）、INTR フック redirect / emu_stop 後 resume は不可、
+    0x7FF00000 番地はマップ不可。
     """
 
     def __init__(self, image_base: int, oep: int, region: Tuple[int, int],

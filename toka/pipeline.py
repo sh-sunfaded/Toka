@@ -8,14 +8,14 @@ toka.pipeline — 3段パイプライン統合と鍵回収（ブートストラ�
   S        = rol13 出力 = Huffman/LZSS ビットストリーム
   平文x86  = 既知の展開結果ダンプと一致検証する相手
 
-記述子: {off1, size1, off2, size2}（実測例 = 0xb39ec:0xc12:0xb39ec:0x14bc）。
-鍵・テーブル選択: off2 >= 閾値(0xa8000) → 高域ペア (SPN鍵 0x106256 /
-Huffman表 0x1055b4)、未満 → 低域ペア (0x1054c0 / 0x104800)。
+記述子: {off1, size1, off2, size2}（例: "0x1000:0x40:0x1000:0x80"）。
+鍵・テーブル選択: off2 >= 閾値 → 高域ペア (SPN鍵 / Huffman表)、
+未満 → 低域ペア（実際の値はプロファイル toka.config を参照）。
 
 鍵回収 = 既知平文ブートストラップ（2^32総当たり不要）:
   (1) Huffman表から全シンボル符号を再構築し、「既知展開結果の先頭を
       再現するコマンド列」をDFS列挙してストリーム先頭32bit候補を網羅
-      （実測では数千候補に収まる）
+      （通常は数千候補程度に収まる）
   (2) 各候補 S0 から K = M0 ^ ror32(S0, 13) を導出
   (3) K でストリームを rol13 fwd → expand し、既知の展開結果と一致検証
 
@@ -51,7 +51,8 @@ class Descriptor:
 
     @classmethod
     def parse(cls, spec: str) -> "Descriptor":
-        """"0xb39ec:0xc12:0xb39ec:0x14bc" 形式の文字列から構築。"""
+        """"off1:size1:off2:size2"（例 "0x1000:0x40:0x1000:0x80"）形式の
+        文字列から構築。"""
         parts = [int(p, 0) for p in spec.split(":")]
         if len(parts) != 4:
             raise ValueError(f"descriptor needs 4 fields: {spec!r}")

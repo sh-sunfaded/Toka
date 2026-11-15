@@ -15,7 +15,6 @@ toka — 仮想マシン形式の解析ツールキット
     mailslot   mailslotメッセージ復号 + k0範囲走査
     unpack     Stage1自己復号パッカー脱壳（ローリングキー + Unicorn）
     disasm     難読化x86解析支援（movabs隠蔽コード・jmp-over-jmp）
-    patches    既知バイトパターン定義 + 適用検証
     cli        コマンドライン（python -m toka.cli）
 
 使用例:
@@ -23,7 +22,7 @@ toka — 仮想マシン形式の解析ツールキット
     from toka.config import PROFILES
     profile = next(iter(PROFILES.values()))
     pipe = Pipeline(profile, load_image("dump.bin"))
-    plain = pipe.decrypt_block(Descriptor.parse("0xb39ec:0xc12:0xb39ec:0x14bc"))
+    plain = pipe.decrypt_block(Descriptor.parse("0x1000:0x40:0x1000:0x80"))
 """
 from .config import SAMPLE, PROFILES, GameConfig, get_profile
 from .ciphers import Rol13, SPN, bswap32, load_sboxes, rol13_fwd_pure, rol13_inv_pure, rol32, ror32
@@ -36,12 +35,9 @@ from .unpack import (PackerDescriptor, Stage1Runner, decrypt_stream,
                      encrypt_stream, find_descriptors)
 from .disasm import (MovabsSite, decode_imm64, find_jmp_over_jmp, find_movabs,
                      imm64_le, smart_disasm)
-from .patches import (SAMPLE_PATCH_G, Patch, PatchStatus, filter_patch_l_by_lea,
-                      find_patch_l_candidates, scan_pattern, verify_patch,
-                      verify_patchset)
 from . import fastpath
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 __all__ = [
     # config
@@ -62,9 +58,6 @@ __all__ = [
     # disasm
     "MovabsSite", "decode_imm64", "find_jmp_over_jmp", "find_movabs",
     "imm64_le", "smart_disasm",
-    # patches
-    "SAMPLE_PATCH_G", "Patch", "PatchStatus", "filter_patch_l_by_lea",
-    "find_patch_l_candidates", "scan_pattern", "verify_patch", "verify_patchset",
     # fastpath
     "fastpath",
 ]
