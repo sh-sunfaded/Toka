@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "drmvm"
+version = "0.2.0"
+description = "Toolkit for analyzing embedded VM bytecode formats (SPN chain, rolling dword layer, Huffman/LZSS VM)"
+readme = "README.md"
+requires-python = ">=3.8"
+license = { file = "LICENSE" }
+keywords = ["virtual-machine", "bytecode", "huffman", "lzss", "analysis"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+
+[project.optional-dependencies]
+fast = ["numpy>=1.26"]
+emu = ["unicorn>=2.0"]
+disasm = ["capstone>=5.0"]
+
+[tool.setuptools]
+packages = ["drmvm"]
