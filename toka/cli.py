@@ -3,16 +3,13 @@ toka.cli — コマンドラインインターフェース
 
 使用例:
     # 3段パイプラインでVMブロックを展開（鍵既知）
-    python -m toka.cli decrypt-block dump.bin --desc 0xb39ec:0xc12:0xb39ec:0x14bc --out ref.bin
+    python -m toka.cli decrypt-block dump.bin --desc 0x1000:0x40:0x1000:0x80 --out ref.bin
 
     # 既知平文ブートストラップで鍵Kを回収
-    python -m toka.cli recover-key dump.bin --desc 0xb39ec:0xc12:0xb39ec:0x14bc --ref ref_block.bin
+    python -m toka.cli recover-key dump.bin --desc 0x1000:0x40:0x1000:0x80 --ref ref_block.bin
 
     # mailslot暗号ボディの復号（k0範囲走査）
     python -m toka.cli mailslot body.bin --out plain.txt
-
-    # 既知パターン候補の走査 + サンプルパッチ検証
-    python -m toka.cli scan-patches dump.bin
 
     # movabs隠れコードの検出
     python -m toka.cli find-movabs code.bin
@@ -76,21 +73,6 @@ def cmd_mailslot(args) -> int:
         print(f"k0 = {k0:#x}", file=sys.stderr)
         plain = mailslot.decode_body(body, k0)
     _open_out(args.out, plain)
-    return 0
-
-
-def cmd_scan_patches(args) -> int:
-    from .patches import (SAMPLE_PATCH_G, filter_patch_l_by_lea,
-                          find_patch_l_candidates, verify_patch)
-    image = load_image(args.image)
-    cands = find_patch_l_candidates(image)
-    lea = filter_patch_l_by_lea(image, cands)
-    print(f"shr rdx,0x20 sites: {len(cands)}"
-          f" (with preceding lea rdx,[rsp+X]: {len(lea)})")
-    for c in cands:
-        print(f"  rva={c:#x}{'  <-- lea rdx,[rsp+X]' if c in lea else ''}")
-    st = verify_patch(image, SAMPLE_PATCH_G)
-    print(f"sample patch @ {st.patch.rva:#x}: {st.status} ({st.detail}) {st.patch.note}")
     return 0
 
 
@@ -174,11 +156,6 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--k0", help="known k0 (hex). default: range scan")
     sp.add_argument("--out")
     sp.set_defaults(func=cmd_mailslot)
-
-    sp = sub.add_parser("scan-patches",
-                        help="scan known byte-pattern sites / verify sample patch")
-    add_image(sp)
-    sp.set_defaults(func=cmd_scan_patches)
 
     sp = sub.add_parser("find-movabs", help="find movabs-hidden code")
     sp.add_argument("file")

@@ -3,18 +3,29 @@ requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "toka"
-version = "0.2.0"
+name = "pytoka"
+version = "0.3.0"
 description = "Toolkit for analyzing embedded VM bytecode formats (SPN chain, rolling dword layer, Huffman/LZSS VM)"
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.9"
 license = { file = "LICENSE" }
+authors = [{ name = "sh-sunfaded" }]
 keywords = ["virtual-machine", "bytecode", "huffman", "lzss", "analysis"]
 classifiers = [
+    "Development Status :: 3 - Alpha",
+    "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3",
     "Operating System :: OS Independent",
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
+
+[project.urls]
+Homepage = "https://github.com/sh-sunfaded/Toka"
+Repository = "https://github.com/sh-sunfaded/Toka"
+Issues = "https://github.com/sh-sunfaded/Toka/issues"
+
+[project.scripts]
+toka = "toka.cli:main"
 
 [project.optional-dependencies]
 fast = ["numpy>=1.26"]

@@ -1,9 +1,10 @@
 # 藤花(Toka) — 仮想マシン形式の解析ツールキット
 
-パックされたx86イメージ内部で動作する独自の仮想マシン形式の解析で
-確立した解読技法を、特定の製品に依存しない形に一般化したパッケージ。
-コアは純Python（標準ライブラリのみ）で動作し、NumPy / capstone /
-unicorn は導入時のみ有効になる任意依存。研究・学習用途を想定。
+パックされたx86イメージ内部で動作する独自の仮想マシン形式
+（SPN連鎖暗号・dwordローリング層・Huffman/LZSS圧縮VMバイトコードの
+3段パイプライン）を解析するためのアルゴリズム実装ライブラリ。
+特定の製品に依存せず、コアは純Python（標準ライブラリのみ）で動作し、
+NumPy / capstone / unicorn は導入時のみ有効になる任意依存。
 
 ## 3段パイプライン
 
@@ -24,6 +25,12 @@ flowchart LR
 ## インストール
 
 ```bash
+pip install pytoka        # PyPI（配布名。import名は toka）
+```
+
+ソースから:
+
+```bash
 git clone https://github.com/sh-sunfaded/Toka.git
 cd Toka
 pip install .            # コアのみ（標準ライブラリのみで動作）
@@ -33,6 +40,7 @@ pip install .[disasm]    # + 命令デコード (capstone)
 ```
 
 Git からではなくソースツリーを直接使う場合は `PYTHONPATH=.` でも動作する。
+
 ## モジュール構成
 
 | モジュール | 機能 |
@@ -41,34 +49,32 @@ Git からではなくソースツリーを直接使う場合は `PYTHONPATH=.` 
 | `toka/vmcode.py` | Huffman表（復号・符号再構築・構築）+ LZSS型展開 + 先頭列挙DFS |
 | `toka/pipeline.py` | 3段統合 + 既知平文ブートストラップ鍵回収（段階的棄却） |
 | `toka/fastpath.py` | 任意依存 (NumPy) のベクトル化高速パス |
-| `toka/config.py` | 対象別プロファイル（鍵素材・表・閾値の集約） |
+| `toka/config.py` | 対象別プロファイル（鍵素材・表・閾値の集約。同梱SAMPLEは合成レイアウト） |
 | `toka/mailslot.py` | mailslotメッセージ復号 + k0範囲走査 |
 | `toka/unpack.py` | Stage1パッカー記述子走査・ローリングキー・Unicorn実行 |
 | `toka/disasm.py` | movabs隠蔽コード検出・jmp-over-jmp・再帰下降disasm |
-| `toka/patches.py` | 既知バイトパターンの走査と検証（leaフィルタ付き） |
-| `toka/cli.py` | コマンドライン（`python -m toka.cli`） |
+| `toka/cli.py` | コマンドライン（`toka` コマンド / `python -m toka.cli`） |
 
 ## CLI 使用例
 
 ```bash
 # VMブロックを3段で展開（鍵はプロファイル値）
-python -m toka.cli decrypt-block dump1.bin --desc 0xb39ec:0xc12:0xb39ec:0x14bc --out ref.bin
+toka decrypt-block dump.bin --desc 0x1000:0x40:0x1000:0x80 --out ref.bin
 
 # 既知平文から rol13 鍵 K を回収
-python -m toka.cli recover-key dump1.bin --desc 0xb39ec:0xc12:0xb39ec:0x14bc --ref ref.bin
+toka recover-key dump.bin --desc 0x1000:0x40:0x1000:0x80 --ref ref.bin
 
 # mailslot暗号ボディ復号（k0自動走査）
-python -m toka.cli mailslot body.bin --out plain.txt
-
-# 既知バイトパターンの走査と検証
-python -m toka.cli scan-patches dump1.bin
+toka mailslot body.bin --out plain.txt
 
 # movabs即値に隠された実コードの検出
-python -m toka.cli find-movabs code.bin --base 0x1400b000
+toka find-movabs code.bin --base 0x1400b000
 
 # Stage1記述子走査
-python -m toka.cli stage0 packed.bin
+toka stage0 packed.bin
 ```
+
+（`python -m toka.cli` でも同一インターフェース）
 
 ## Python API
 
@@ -76,9 +82,9 @@ python -m toka.cli stage0 packed.bin
 from toka import Descriptor, Pipeline, load_image
 from toka.config import PROFILES
 
-profile = next(iter(PROFILES.values()))  # 同梱のサンプルプロファイル
-pipe = Pipeline(profile, load_image("dump1.bin"))
-plain = pipe.decrypt_block(Descriptor.parse("0xb39ec:0xc12:0xb39ec:0x14bc"))
+profile = next(iter(PROFILES.values()))  # 同梱の合成サンプルプロファイル
+pipe = Pipeline(profile, load_image("dump.bin"))
+plain = pipe.decrypt_block(Descriptor.parse("0x1000:0x40:0x1000:0x80"))
 # 鍵が未知の対象は既知平文から回収
 k = pipe.recover_key(desc, known_expanded_block)
 ```
@@ -113,14 +119,14 @@ NumPy が導入されている環境では、ホットパスが自動的にベ�
    ヘッダを自動除去）を用意し、VMブロック記述子 `{off1,size1,off2,size2}` を特定する。
 2. `key_pair` の分岐閾値、SPN鍵素材/Huffman表のRVAとサイズ、S-box のRVAを
    調査し `GameConfig` を1つ定義して `PROFILES` に登録する。
-   （同梱プロファイルがテンプレートになる）
+   （同梱の合成SAMPLEプロファイルがテンプレートになる）
 3. `recover-key` で鍵を回収 → プロファイルの `rol13_key` に書き戻す。
 4. 同一構造なら ciphers/vmcode/pipeline は無変更で動作する。
 
-## 実機検証チェックリスト（不確実性台帳）
+## 実機突合チェックリスト（不確実性台帳）
 
-本ツールキットのうち、ダンプ解析からの再構成であり実機突合が必須の項目。
-検証の基準手順: **dump1[0xb39ec:+0xc12] を `decrypt-block` し、
+本ツールキットのうち、解析からの再構成であり実データとの突合が必須の項目。
+検証の基準手順: **既知の格納形ブロックを `decrypt-block` し、
 既知の展開結果とバイト完全一致すること**。
 
 1. **SPN T() のラウンド内演算順** — `_default_t` は解析メモからの再構成。
@@ -128,10 +134,9 @@ NumPy が導入されている環境では、ホットパスが自動的にベ�
 2. **Huffman byte+2（extra）の意味** — 降下後の葉では消費しない解釈を採用。
    一致しない場合は `decode_symbol` の葉側 `consume` を調整する。
 3. **acc の最大2バイト解釈** — acc>=0x100 で組立失敗とする解釈。
-   idx13ブロックの展開が途中で拒否される場合はこの条件を再検討。
+   対象ブロックの展開が途中で拒否される場合はこの条件を再検討。
 4. **mailslot の i 更新タイミング** — 処理後に `k = ror32(k+i, 7)` で固定。
-   実測ボディの先頭既知平文（`-- Version\r\n`）が1バイトずれる場合は
-   `decode_body` の i を調整。
+   既知平文が1バイトずれる場合は `decode_body` の i を調整。
 5. **Stage0 の size/initKey** — `decrypt_stream` は
    `key0 = (~size + initKey)` で導出。記述子の実測フィールドから
    size・initKey を正しく取ること（roundtrip で検証）。
@@ -139,7 +144,7 @@ NumPy が導入されている環境では、ホットパスが自動的にベ�
 ## テスト
 
 ```bash
-python3 tests/test_toka.py    # 33チェック・合成データのみ・外部ダンプ不要
+python3 tests/test_toka.py    # 30チェック・合成データのみ・外部ダンプ不要
 ```
 
 NumPy が導入された環境では、ベクトル化実装と純Python実装の
@@ -147,4 +152,4 @@ NumPy が導入された環境では、ベクトル化実装と純Python実装�
 未導入の環境ではこれらのテストはスキップされ、残りはすべて通る。
 
 実データを使う検証（上記チェックリスト）は、実ダンプ入手時に
-`decrypt-block` / `scan-patches` / `stage0` の各サブコマンドで行う。
+`decrypt-block` / `stage0` の各サブコマンドで行う。

@@ -17,13 +17,12 @@ import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from toka import (Descriptor, SAMPLE, SAMPLE_PATCH_G, HuffmanTable, Patch,
-                   Pipeline, Rol13, SPN, build_table, decode_body, decrypt_stream,
-                   encode_body, encrypt_stream, enumerate_prefixes_from_reference,
-                   expand, find_descriptors, find_jmp_over_jmp, find_movabs,
-                   filter_patch_l_by_lea, find_patch_l_candidates, get_profile,
+from toka import (Descriptor, SAMPLE, HuffmanTable, Pipeline, Rol13, SPN,
+                   build_table, decode_body, decrypt_stream, encode_body,
+                   encrypt_stream, enumerate_prefixes_from_reference, expand,
+                   find_descriptors, find_jmp_over_jmp, find_movabs, get_profile,
                    imm64_le, load_image, recover_k0, recover_rol13_key,
-                   scan_pattern, simulate_command, verify_patch, verify_patchset)
+                   simulate_command)
 from toka.ciphers import rol13_fwd_pure, rol13_inv_pure, rol32, ror32
 from toka.fastpath import HAVE_NUMPY
 from toka.pipeline import _recover_naive
@@ -84,7 +83,7 @@ def chain_inv_identity(M: bytes) -> bytes:
 
 @test
 def test_rol13_roundtrip():
-    k = 0xAF27A866
+    k = 0x13579BDF
     data = bytes(range(256))
     enc = Rol13(k).fwd(data)
     assert enc != data
@@ -320,7 +319,7 @@ def test_fastpath_rol13_batch_equivalence():
     from toka import fastpath
     rng = random.Random(0xBEEF)
     data = bytes(rng.randrange(256) for _ in range(100))
-    keys = [0, 1, 0xAF27A866, 0x9E3779B9, 0xFFFFFFFF]
+    keys = [0, 1, 0x13579BDF, 0x9E3779B9, 0xFFFFFFFF]
     batch = fastpath.rol13_fwd_batch(data, keys)
     assert len(batch) == len(keys)
     for k, row in zip(keys, batch):
@@ -362,9 +361,9 @@ def test_fastpath_recover_k0_equivalence():
 
 @test
 def test_descriptor_parse():
-    d = Descriptor.parse("0xb39ec:0xc12:0xb39ec:0x14bc")
-    assert (d.off1, d.size1, d.off2, d.size2) == (0xB39EC, 0xC12, 0xB39EC, 0x14BC)
-    assert str(d) == "0xb39ec:0xc12:0xb39ec:0x14bc"
+    d = Descriptor.parse("0x1000:0x40:0x1000:0x80")
+    assert (d.off1, d.size1, d.off2, d.size2) == (0x1000, 0x40, 0x1000, 0x80)
+    assert str(d) == "0x1000:0x40:0x1000:0x80"
     try:
         Descriptor.parse("1:2:3")
         assert False
@@ -375,10 +374,10 @@ def test_descriptor_parse():
 @test
 def test_config_profile():
     cfg = get_profile("sample")
-    assert cfg.rol13_key == 0xAF27A866
-    assert cfg.key_pair(0xA8000)[0] == 0x106256       # 高域
-    assert cfg.key_pair(0xA7FFF)[0] == 0x1054C0       # 低域
-    assert cfg.desc("idx13") == (0xB39EC, 0xC12, 0xB39EC, 0x14BC)
+    assert cfg.rol13_key == 0x13579BDF
+    assert cfg.key_pair(cfg.expand_threshold)[0] == cfg.spn_key_high[0]       # 高域
+    assert cfg.key_pair(cfg.expand_threshold - 1)[0] == cfg.spn_key_low[0]   # 低域
+    assert cfg.desc("demo") == (0x1000, 0x40, 0x1000, 0x80)
     try:
         get_profile("nope")
         assert False
@@ -414,13 +413,17 @@ def test_pipeline_e2e_identity_spn():
     M = Rol13(K).inv(S)
     stored = chain_inv_identity(M)
 
-    image = bytearray(0x106400)
-    image[0x1055B4:0x1055B4 + len(tbl_raw)] = tbl_raw          # Huffman表(高域)
-    image[0x106256:0x106256 + 0xF4] = b"\x00\x01\x0e\x00" + b"\x00" * (0xF4 - 4)
+    off2 = SAMPLE.expand_threshold                  # 閾値以上 → 高域ペア
+    key_rva, key_size, tbl_rva, tbl_size = SAMPLE.key_pair(off2)
+    need = max(tbl_rva + tbl_size, 0x1000 + len(stored),
+               max(SAMPLE.sbox_rvas) + 0x400)        # S-box 4枚（各256 dword）
+    image = bytearray(need + 0x100)
+    image[tbl_rva:tbl_rva + len(tbl_raw)] = tbl_raw          # Huffman表(高域)
+    image[key_rva:key_rva + key_size] = b"\x00\x01\x0e\x00" + b"\x00" * (key_size - 4)
     off1 = 0x1000
     image[off1:off1 + len(stored)] = stored
 
-    desc = Descriptor(off1, len(stored), 0xB39EC, len(ref3))
+    desc = Descriptor(off1, len(stored), off2, len(ref3))
     ident = SPN(b"\x00\x01\x0e\x00", t_func=lambda b: b)
     pipe = Pipeline(SAMPLE, bytes(image))
 
@@ -499,46 +502,6 @@ def toka_decode(imm):
 def test_find_jmp_over_jmp():
     data = b"\xeb\x04DATA" + b"\x90"
     assert list(find_jmp_over_jmp(data)) == [6]
-
-
-# ============================================================ patches
-
-@test
-def test_patch_verify_states():
-    p = Patch(0x800, b"\x75\x0a", b"\x90\x90", note="t")
-    img = bytearray(0x1000)
-    img[0x800:0x802] = b"\x75\x0a"
-    assert verify_patch(bytes(img), p).status == "ORIG_MATCH"
-    img[0x800:0x802] = b"\x90\x90"
-    assert verify_patch(bytes(img), p).status == "ALREADY_PATCHED"
-    img[0x800:0x802] = b"\xcc\xcc"
-    st = verify_patch(bytes(img), p)
-    assert st.status == "MISMATCH" and st.detail == "found cccc"
-    oob = Patch(0x2000, b"\x75\x0a", b"\x90\x90")
-    assert verify_patch(bytes(img), oob).status == "NOT_PRESENT"
-    # patchset + scan_pattern
-    assert verify_patchset(bytes(img), [p, oob])[1].status == "NOT_PRESENT"
-    assert scan_pattern(b"\x11\x22\x11\x22\x11", b"\x11\x22") == [0, 2]
-
-
-@test
-def test_patch_l_scan_and_lea_filter():
-    mine = b"\x48\x8d\x54\x24\x08" + b"\x48\xc1\xea\x20"   # lea rdx,[rsp+8]; shr
-    other = b"\x48\x8d\x0c\x24" + b"\x48\xc1\xea\x20"      # lea rcx,[rsp]; shr
-    img = mine + other
-    cands = find_patch_l_candidates(img)
-    assert cands == [5, 13]
-    assert filter_patch_l_by_lea(img, cands) == [5]
-
-
-@test
-def test_patch_g_definition():
-    img = bytearray(0x100000)
-    img[0xDDEB8:0xDDEBA] = b"\x75\x0a"
-    st = verify_patch(bytes(img), SAMPLE_PATCH_G)
-    assert st.status == "ORIG_MATCH"
-    assert st.patch.rva == 0xDDEB8
-    assert SAMPLE_PATCH_G.new == b"\x90\x90"
 
 
 # ============================================================ cli
