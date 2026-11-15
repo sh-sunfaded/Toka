@@ -5,12 +5,12 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "pytoka"
 version = "0.3.0"
-description = "Toolkit for analyzing embedded VM bytecode formats (SPN chain, rolling dword layer, Huffman/LZSS VM)"
+description = "Toolkit for analyzing the KONN packer format (self-decrypting Stage0 packer, SPN chain cipher, rol13 rolling layer, Huffman/LZSS bytecode VM)"
 readme = "README.md"
 requires-python = ">=3.9"
 license = { file = "LICENSE" }
 authors = [{ name = "sh-sunfaded" }]
-keywords = ["virtual-machine", "bytecode", "huffman", "lzss", "analysis"]
+keywords = ["konn", "packer", "unpacker", "virtual-machine", "bytecode", "huffman", "lzss"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "License :: OSI Approved :: Apache Software License",

@@ -1,7 +1,7 @@
 """
-toka.unpack — Stage1 自己復号パッカーの脱壳
+toka.unpack — KONN形式 自己復号パッカー（Stage0→Stage1）の脱壳
 
-パッカー構造（形式一般化）:
+パッカー構造（KONN形式の不変量）:
   パック済みデータ --MapViewOfFile--> descriptor(8×i32, sig 0x4E4E4F4B,
   stride 0x20, 実行時にスタックへ復号) --> ローリングキー復号 -->
   Stage1（復号済みコード領域・OEP はプロファイル指定） -->

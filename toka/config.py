@@ -31,7 +31,7 @@ class GameConfig:
     # Stage1（自己復号パッカー）関連
     stage1_region: Tuple[int, int] = (0x8000, 0xC000)
     stage1_oep: int = 0x140000A000
-    descriptor_sig: int = 0x4E4E4F4B  # LE bytes 4B 4F 4E 4E（形式の署名）
+    descriptor_sig: int = 0x4E4E4F4B  # LE bytes "KONN"（形式署名・形式の作業名の由来）
 
     def key_pair(self, off2: int) -> Tuple[int, int, int, int]:
         """off2 → (SPN鍵rva, size, Huffman表rva, size)。閾値で分岐。"""

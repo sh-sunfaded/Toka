@@ -1,12 +1,30 @@
-# 藤花(Toka) — 仮想マシン形式の解析ツールキット
+# 藤花(Toka) — KONNパッカーフォーマットの解析ツールキット
 
-パックされたx86イメージ内部で動作する独自の仮想マシン形式
-（SPN連鎖暗号・dwordローリング層・Huffman/LZSS圧縮VMバイトコードの
-3段パイプライン）を解析するためのアルゴリズム実装ライブラリ。
-特定の製品に依存せず、コアは純Python（標準ライブラリのみ）で動作し、
-NumPy / capstone / unicorn は導入時のみ有効になる任意依存。
+**KONN形式**（作業名）— 記述子署名 `0x4E4E4F4B`（LEバイト列
+`4B 4F 4E 4E` = `"KONN"`）で識別される、自己復号パッカーと
+バイトコードVMで保護されたx86-64イメージの形式 — の解析に
+必要なアルゴリズム群のPython実装。コアは純Python
+（標準ライブラリのみ）で動作し、NumPy / capstone / unicorn は
+導入時のみ有効になる任意依存。同梱のSAMPLEプロファイルは
+合成レイアウトであり、対象固有の配置はユーザー定義の
+プロファイルで与える。
 
-## 3段パイプライン
+## KONN形式の構造不変量
+
+形式の識別と解析に必要な不変量（すべて本パッケージの実装由来。
+対象イメージのメモリ配置などの実測値は含まない）:
+
+- **Stage0 — パック済み形式（自己復号パッカー）**
+  - 記述子: 8×i32、署名 `0x4E4E4F4B`、stride `0x20`
+  - ローリングキー復号:
+    `key0 = (~size + initKey) & 0xffffffff`、
+    `plain_i = key_i ^ chunk_i`、
+    `key_{i+1} = i^2 ^ (chunk_i + i + key_i)`（可逆・roundtrip検証可）
+- **Stage1 — 復号済みコード領域**（領域とOEPはプロファイルで指定）
+- **Stage2 — バイトコードVM**: 格納形ブロックを3段パイプラインで
+  平文x86へ展開する（次節）
+
+## Stage2 — 3段パイプライン
 
 ```mermaid
 flowchart LR
@@ -51,7 +69,7 @@ Git からではなくソースツリーを直接使う場合は `PYTHONPATH=.` 
 | `toka/fastpath.py` | 任意依存 (NumPy) のベクトル化高速パス |
 | `toka/config.py` | 対象別プロファイル（鍵素材・表・閾値の集約。同梱SAMPLEは合成レイアウト） |
 | `toka/mailslot.py` | mailslotメッセージ復号 + k0範囲走査 |
-| `toka/unpack.py` | Stage1パッカー記述子走査・ローリングキー・Unicorn実行 |
+| `toka/unpack.py` | 自己復号パッカー（Stage0→Stage1）: 記述子走査・ローリングキー・Unicorn実行 |
 | `toka/disasm.py` | movabs隠蔽コード検出・jmp-over-jmp・再帰下降disasm |
 | `toka/cli.py` | コマンドライン（`toka` コマンド / `python -m toka.cli`） |
 
