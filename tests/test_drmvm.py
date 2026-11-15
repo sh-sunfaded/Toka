@@ -1,0 +1,458 @@
+#!/usr/bin/env python3
+"""drmvm 自動検証スイート。
+
+純標準ライブラリのみ・外部ダンプ不要で、パッケージ全体の意味論を
+合成データで検証する（実データとの突合はREADMEの実機検証チェックリスト参照）。
+
+実行:  python3 tests/test_drmvm.py   （終了コード 0=全PASS）
+"""
+import os
+import struct
+import sys
+import tempfile
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from drmvm import (Descriptor, GAKUMAS, GAKUMAS_PATCH_G, HuffmanTable, Patch,
+                   Pipeline, Rol13, SPN, build_table, decode_body, decrypt_stream,
+                   encode_body, encrypt_stream, enumerate_prefixes_from_reference,
+                   expand, find_descriptors, find_jmp_over_jmp, find_movabs,
+                   filter_patch_l_by_lea, find_patch_l_candidates, get_profile,
+                   imm64_le, load_image, recover_k0, recover_rol13_key,
+                   scan_pattern, simulate_command, verify_patch, verify_patchset)
+from drmvm.ciphers import rol32, ror32
+from drmvm.vmcode import BitReader, encode_stream
+
+M32 = 0xFFFFFFFF
+TESTS = []
+
+
+def test(fn):
+    TESTS.append((fn.__name__, fn))
+    return fn
+
+
+# ============================================================ 共通素材
+
+# LSB-first 正規ハフマン符号（長さ 2,2,3,4,4,5,6,7 — 接頭辞自由・衝突なし）
+CODES = {
+    0x041: (0x0, 2),    # LIT 'A'
+    0x042: (0x2, 2),    # LIT 'B'
+    0x302: (0x1, 3),    # LZ len=2 (dist=acc+2)
+    0x102: (0x5, 4),    # acc 組立 data=5
+    0x202: (0xD, 4),    # RLE unit=2
+    0x043: (0x3, 5),    # LIT 'C'
+    0x058: (0x13, 6),   # LIT 'X'
+    0x059: (0x33, 7),   # LIT 'Y'
+}
+# 第58次AH開発時の修正済みテストプラン（LZに十分な履歴がある版）
+PLAN = [0x041, 0x042, 0x302, 0x043, 0x058, 0x059, 0x102, 0x202]
+PLAN_OUT = b"ABABCXYXYXY"          # 11 bytes
+
+
+def make_table():
+    return HuffmanTable(build_table(CODES))
+
+
+def chain_inv_identity(M: bytes) -> bytes:
+    """SPN恒等T連鎖の逆: in_i = M_i ^ in_{i-1}（格納形を作る側）。"""
+    out = bytearray(M)
+    for i in range(0, len(M) - 15, 16):
+        if i == 0:
+            continue
+        blk = bytes(a ^ b for a, b in zip(M[i:i + 16], out[i - 16:i]))
+        out[i:i + 16] = blk
+    return bytes(out)
+
+
+# ============================================================ ciphers
+
+@test
+def test_rol13_roundtrip():
+    k = 0xAF27A866
+    data = bytes(range(256))
+    enc = Rol13(k).fwd(data)
+    assert enc != data
+    assert Rol13(k).inv(enc) == data
+    # 端数バイトは無処理
+    data2 = data + b"\xaa\xbb"
+    out2 = Rol13(k).fwd(data2)
+    assert out2[256:] == b"\xaa\xbb"
+    assert Rol13(k).inv(out2) == data2
+
+
+@test
+def test_rol13_recipies():
+    k = 0x12345678
+    data = struct.pack("<2I", 0x11111111, 0x22222222)
+    out = Rol13(k).fwd(data)
+    e0 = (rol32(0x11111111 ^ k, 13) - 0) & M32
+    e1 = (rol32(0x22222222 ^ k, 13) - 1) & M32          # esi_1 = K + 0
+    assert struct.unpack_from("<I", out, 0)[0] == e0
+    assert struct.unpack_from("<I", out, 4)[0] == e1
+
+
+@test
+def test_rol13_derive_key():
+    K = 0xDEADBEEF
+    M = b"\x01\x02\x03\x04"
+    S = Rol13(K).fwd(M)
+    m0 = struct.unpack("<I", M)[0]
+    s0 = struct.unpack("<I", S)[0]
+    assert Rol13.derive_key(m0, s0) == K
+
+
+@test
+def test_spn_identity_chain():
+    spn = SPN(b"\x00\x01\x0e\x00", t_func=lambda b: b)
+    data = bytes(range(48))
+    out = spn.chain_fwd(data)
+    assert out[:16] == data[:16]                                   # prev=0
+    assert out[16:32] == bytes(a ^ b for a, b in zip(data[16:32], data[:16]))
+    assert out[32:48] == bytes(a ^ b for a, b in zip(data[32:48], data[16:32]))
+    # 端数ブロックは無処理
+    out3 = spn.chain_fwd(data + b"\xff\xee")
+    assert out3[48:] == b"\xff\xee"
+
+
+@test
+def test_spn_default_t_deterministic():
+    sboxes = [list(range(256))] * 4
+    key = b"\x00\x01\x0e\x00" + b"\x00" * (0x20 * 7)
+    spn = SPN(key, sboxes=sboxes)
+    assert spn.rounds == 7 and spn.magic == 0x0100
+    blk = b"\x11" * 16
+    assert spn.t(blk) == spn.t(blk)          # 決定論的
+    assert len(spn.t(blk)) == 16
+
+
+# ============================================================ vmcode
+
+@test
+def test_huffman_build_codes_roundtrip():
+    tbl = make_table()
+    got = tbl.codes()
+    for sym, (code, length) in CODES.items():
+        assert got.get(sym) == (code, length), (hex(sym), got.get(sym))
+
+
+@test
+def test_huffman_decode_roundtrip():
+    tbl = make_table()
+    syms = [0x041, 0x302, 0x102, 0x202, 0x058, 0x059, 0x043, 0x042, 0x302]
+    # 末尾シンボルは peek(8) のため下駄が必要（実運用でもストリームに余裕がある）
+    stream = encode_stream(syms, CODES) + b"\x00\x00"
+    reader = BitReader(stream)
+    dec = [tbl.decode_symbol(reader) for _ in syms]
+    assert dec == syms
+
+
+@test
+def test_huffman_unused_root_is_error():
+    raw = build_table({0x041: (0x0, 2)})   # root≡0 mod4 のみ有効
+    tbl = HuffmanTable(raw)
+    try:
+        tbl.decode_symbol(BitReader(b"\x01\x00"))
+        assert False, "unused entry must raise"
+    except ValueError:
+        pass
+
+
+@test
+def test_build_table_rejects_conflict():
+    try:
+        build_table({0x1: (0x0, 2), 0x2: (0x4, 3)})   # 0x4 & 3 == 0 前置き衝突
+        assert False, "conflicting codes must raise"
+    except ValueError:
+        pass
+
+
+@test
+def test_expand_plan():
+    tbl = make_table()
+    S = encode_stream(PLAN, CODES)
+    res = expand(S, len(PLAN_OUT), tbl)
+    assert res.ok, res.error
+    assert res.out == PLAN_OUT == b"ABABCXYXYXY"
+
+
+@test
+def test_expand_partial_and_exhaust():
+    tbl = make_table()
+    # out_size に達した時点で成功（残りビットは無視）
+    S = encode_stream(PLAN, CODES)
+    res = expand(S, 1, tbl)
+    assert res.ok and res.out == b"A"
+    # ストリーム枯渇
+    res2 = expand(b"", 5, tbl)
+    assert not res2.ok and res2.error
+    # コマンド拒否（LZに履歴が無い）
+    S3 = encode_stream([0x302], CODES)
+    res3 = expand(S3, 4, tbl)
+    assert not res3.ok and "rejected" in res3.error
+
+
+@test
+def test_simulate_command_semantics():
+    lim = 16
+    # LIT
+    ok, emit, acc = simulate_command(0x000, 0x41, b"", 0, lim)
+    assert ok and emit == b"A" and acc == 0
+    ok, _, _ = simulate_command(0x000, 0x41, b"X" * 16, 0, 16)
+    assert not ok                                        # 出力上限超過
+    # acc 組立: 最大2バイト
+    ok, emit, acc = simulate_command(0x100, 0x05, b"", 0, lim)
+    assert ok and emit == b"" and acc == 5
+    ok, _, acc = simulate_command(0x100, 0x06, b"", 5, lim)
+    assert ok and acc == 0x0506
+    ok, _, acc = simulate_command(0x100, 0x07, b"", 0x0506, lim)
+    assert not ok and acc == 0x0506                      # acc>=0x100 で失敗
+    # RLE unit=1 / unit=2 / 不正unit
+    ok, emit, acc = simulate_command(0x200, 1, b"ABC", 0, lim)
+    assert ok and emit == b"C" and acc == 0
+    ok, emit, acc = simulate_command(0x200, 2, b"ABCD", 2, lim)
+    assert ok and emit == b"CDCD" and acc == 0
+    ok, _, _ = simulate_command(0x200, 3, b"ABCD", 1, lim)
+    assert not ok                                        # unit∈{1,2,4}
+    ok, emit, acc = simulate_command(0x200, 4, b"ABCDEFGH", 1, lim)
+    assert ok and emit == b"EFGH"                       # unit=4
+    # LZ: 履歴不足 / 通常コピー
+    ok, _, _ = simulate_command(0x300, 2, b"", 0, lim)
+    assert not ok
+    ok, emit, acc = simulate_command(0x300, 2, b"ABC", 0, lim)
+    assert ok and emit == b"BC" and acc == 0
+    # 未知モード
+    ok, _, _ = simulate_command(0x400, 0, b"", 0, lim)
+    assert not ok
+
+
+@test
+def test_enumerate_includes_true_s0():
+    tbl = make_table()
+    plan2 = PLAN + [0x043] * 10                        # 計83bit >= 32bit
+    ref2 = PLAN_OUT + b"C" * 10
+    S = encode_stream(plan2, CODES)
+    true_s0 = struct.unpack_from("<I", S + b"\x00" * 4, 0)[0]
+    cands = enumerate_prefixes_from_reference(tbl, ref2, min_bits=32)
+    assert true_s0 in cands, f"S0={true_s0:#x} not in {len(cands)} cands"
+    assert 0 < len(cands) < 10000                       # 有界（爆発しない）
+
+
+@test
+def test_recover_rol13_key():
+    tbl = make_table()
+    plan2 = PLAN + [0x043] * 10                    # 83bit -> 11B
+    ref2 = PLAN_OUT + b"C" * 10
+    K = 0x9E3779B9
+    S = encode_stream(plan2, CODES)
+    assert len(S) == 11
+    M = Rol13(K).inv(S)
+    assert recover_rol13_key(M, ref2, len(ref2), tbl) == K
+    # 誤鍵では既知平文と一致しない（ゴミストリームは例外でも失敗でもよい）
+    try:
+        wrong = expand(Rol13(0).fwd(M), len(ref2), tbl)
+        assert wrong.out != ref2
+    except (ValueError, IndexError):
+        pass
+
+
+# ============================================================ pipeline / config
+
+@test
+def test_descriptor_parse():
+    d = Descriptor.parse("0xb39ec:0xc12:0xb39ec:0x14bc")
+    assert (d.off1, d.size1, d.off2, d.size2) == (0xB39EC, 0xC12, 0xB39EC, 0x14BC)
+    assert str(d) == "0xb39ec:0xc12:0xb39ec:0x14bc"
+    try:
+        Descriptor.parse("1:2:3")
+        assert False
+    except ValueError:
+        pass
+
+
+@test
+def test_config_profile():
+    cfg = get_profile("gakumas")
+    assert cfg.rol13_key == 0xAF27A866
+    assert cfg.key_pair(0xA8000)[0] == 0x106256       # 高域
+    assert cfg.key_pair(0xA7FFF)[0] == 0x1054C0       # 低域
+    assert cfg.desc("idx13") == (0xB39EC, 0xC12, 0xB39EC, 0x14BC)
+    try:
+        get_profile("nope")
+        assert False
+    except KeyError:
+        pass
+
+
+@test
+def test_load_image_strips_header():
+    payload = b"\x48\x8b\x01\x90"
+    blob = b"REGION image addr=0x140000000 size=0x1000\n" + payload
+    with tempfile.NamedTemporaryFile(delete=False) as f:
+        f.write(blob)
+        path = f.name
+    try:
+        assert load_image(path) == payload
+        with open(path, "wb") as f:
+            f.write(payload)
+        assert load_image(path) == payload            # ヘッダ無しはそのまま
+    finally:
+        os.unlink(path)
+
+
+@test
+def test_pipeline_e2e_identity_spn():
+    tbl_raw = build_table(CODES)
+    tbl = HuffmanTable(tbl_raw)
+    plan3 = PLAN + [0x043] * 120                   # 633bit -> 80B (5ブロック)
+    ref3 = PLAN_OUT + b"C" * 120
+    K = 0xDEADBEEF
+    S = encode_stream(plan3, CODES)
+    assert len(S) == 80
+    M = Rol13(K).inv(S)
+    stored = chain_inv_identity(M)
+
+    image = bytearray(0x106400)
+    image[0x1055B4:0x1055B4 + len(tbl_raw)] = tbl_raw          # Huffman表(高域)
+    image[0x106256:0x106256 + 0xF4] = b"\x00\x01\x0e\x00" + b"\x00" * (0xF4 - 4)
+    off1 = 0x1000
+    image[off1:off1 + len(stored)] = stored
+
+    desc = Descriptor(off1, len(stored), 0xB39EC, len(ref3))
+    ident = SPN(b"\x00\x01\x0e\x00", t_func=lambda b: b)
+    pipe = Pipeline(GAKUMAS, bytes(image))
+
+    out = pipe.decrypt_block(desc, rol13_key=K, spn=ident)
+    assert out == ref3, (out[:16].hex(), ref3[:16].hex())
+    assert pipe.recover_key(desc, ref3, spn=ident) == K
+
+
+# ============================================================ mailslot
+
+@test
+def test_mailslot_roundtrip_and_recover():
+    k0 = 0xFFF8C5A3
+    plain = b"-- Version\r\n" + b"secret payload 123"
+    body = encode_body(plain, k0)
+    assert body != plain
+    assert decode_body(body, k0) == plain
+    assert recover_k0(body) == k0                     # 0xfff80000.. からの走査
+    assert decode_body(body, k0 ^ 0xFF) != plain
+
+
+# ============================================================ unpack
+
+@test
+def test_unpack_rolling_key_roundtrip():
+    data = bytes((i * 7 + 3) & 0xFF for i in range(200))
+    enc = encrypt_stream(data, size=0x1000, init_key=0x12345)
+    assert enc != data
+    assert decrypt_stream(enc, 0x1000, 0x12345) == data
+
+
+@test
+def test_unpack_find_descriptors():
+    blob = bytearray(64)
+    struct.pack_into("<8I", blob, 16, 0x4E4E4F4B, 1, 2, 3, 4, 5, 6, 7)
+    found = find_descriptors(bytes(blob))
+    assert len(found) == 1
+    assert found[0].offset == 16 and found[0].sig == 0x4E4E4F4B
+    assert found[0].fields[3] == 3
+
+
+# ============================================================ disasm
+
+@test
+def test_find_movabs_vector():
+    imm_val = 0x105B8B4C08C48348
+    code = b"\x48\xb9" + struct.pack("<Q", imm_val) + b"\x90\x90"
+    sites = list(find_movabs(code))
+    assert len(sites) == 1
+    s = sites[0]
+    assert s.offset == 0 and s.reg == 1                        # rcx
+    assert s.imm.hex() == "105b8b4c08c48348"                  # 即値のhex表記
+    assert imm64_le(s.imm).hex() == "4883c4084c8b5b10"         # 隠れ実コード
+    try:
+        import capstone  # noqa: F401
+        have_cs = True
+    except ImportError:
+        have_cs = False
+    if have_cs:
+        insns = drmvm_decode(s.imm)
+        assert insns[0].mnemonic == "add"
+    else:
+        try:
+            drmvm_decode(s.imm)
+            assert False
+        except RuntimeError as e:
+            assert "4883c4084c8b5b10" in str(e)
+
+
+def drmvm_decode(imm):
+    from drmvm import decode_imm64
+    return decode_imm64(imm)
+
+
+@test
+def test_find_jmp_over_jmp():
+    data = b"\xeb\x04DATA" + b"\x90"
+    assert list(find_jmp_over_jmp(data)) == [6]
+
+
+# ============================================================ patches
+
+@test
+def test_patch_verify_states():
+    p = Patch(0x800, b"\x75\x0a", b"\x90\x90", note="t")
+    img = bytearray(0x1000)
+    img[0x800:0x802] = b"\x75\x0a"
+    assert verify_patch(bytes(img), p).status == "ORIG_MATCH"
+    img[0x800:0x802] = b"\x90\x90"
+    assert verify_patch(bytes(img), p).status == "ALREADY_PATCHED"
+    img[0x800:0x802] = b"\xcc\xcc"
+    st = verify_patch(bytes(img), p)
+    assert st.status == "MISMATCH" and st.detail == "found cccc"
+    oob = Patch(0x2000, b"\x75\x0a", b"\x90\x90")
+    assert verify_patch(bytes(img), oob).status == "NOT_PRESENT"
+    # patchset + scan_pattern
+    assert verify_patchset(bytes(img), [p, oob])[1].status == "NOT_PRESENT"
+    assert scan_pattern(b"\x11\x22\x11\x22\x11", b"\x11\x22") == [0, 2]
+
+
+@test
+def test_patch_l_scan_and_lea_filter():
+    mine = b"\x48\x8d\x54\x24\x08" + b"\x48\xc1\xea\x20"   # lea rdx,[rsp+8]; shr
+    other = b"\x48\x8d\x0c\x24" + b"\x48\xc1\xea\x20"      # lea rcx,[rsp]; shr
+    img = mine + other
+    cands = find_patch_l_candidates(img)
+    assert cands == [5, 13]
+    assert filter_patch_l_by_lea(img, cands) == [5]
+
+
+@test
+def test_patch_g_definition():
+    img = bytearray(0x100000)
+    img[0xDDEB8:0xDDEBA] = b"\x75\x0a"
+    st = verify_patch(bytes(img), GAKUMAS_PATCH_G)
+    assert st.status == "ORIG_MATCH"
+    assert st.patch.rva == 0xDDEB8
+    assert GAKUMAS_PATCH_G.new == b"\x90\x90"
+
+
+# ============================================================ runner
+
+def main() -> int:
+    failed = 0
+    for name, fn in TESTS:
+        try:
+            fn()
+            print(f"PASS  {name}")
+        except Exception as e:  # noqa: BLE001
+            failed += 1
+            print(f"FAIL  {name}: {type(e).__name__}: {e}")
+    print(f"\n{len(TESTS) - failed}/{len(TESTS)} passed")
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
