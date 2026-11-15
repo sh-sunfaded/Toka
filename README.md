@@ -24,8 +24,8 @@ flowchart LR
 ## インストール
 
 ```bash
-git clone https://github.com/sh-sunfaded/drmvm.git
-cd drmvm
+git clone https://github.com/sh-sunfaded/Toka.git
+cd Toka
 pip install .            # コアのみ（標準ライブラリのみで動作）
 pip install .[fast]      # + NumPy 高速パス
 pip install .[emu]       # + Stage1 エミュレーション (unicorn)
