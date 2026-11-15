@@ -1,10 +1,10 @@
 """
 drmvm.disasm — 難読化対応 x86-64 逆アセンブル支援
 
-本保護の平文x86は線形disasm不能（フェーズAC/Sの教訓）:
+対象の平文x86は線形disasm不能（実測の教訓）:
   (1) jmp-over-jmp: 実データをまたぐ短jmpで線形逆アセンブルを崩す
       → 再帰下降ディスアセンブラ（capstone）で追う
-  (2) movabs即値に実コードを隠す: 例: 0x1400b4f35 の
+  (2) movabs即値に実コードを隠す: 例:
       movabs rcx, 0x105b8b4c08c48348
       → 即値の LE バイト列 48 83 c4 08 4c 8b 5b 10 は
         「add rsp,8; mov r11,[rbx+0x10]」という実命令

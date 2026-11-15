@@ -1,8 +1,8 @@
 """
 drmvm.unpack — Stage1 自己復号パッカーの脱壳
 
-パッカー構造（フェーズE〜K解析、学マス実測）:
-  gakumas.exe._ (662,544B) --MapViewOfFile--> descriptor(8×i32, sig 0x4E4E4F4B,
+パッカー構造（ダンプ解析による実測ベース）:
+  パック済みデータ --MapViewOfFile--> descriptor(8×i32, sig 0x4E4E4F4B,
   stride 0x20, 実行時にスタックへ復号) --> ローリングキー復号 -->
   Stage1 (RVA 0xa8000..0xec000, OEP 0x1400aa8a0) --> Stage2 = バイトコードVM
   （VEH依存のオンデマンド復号で静的エミュレーション不可 → drmvm.pipeline で扱う）
@@ -12,9 +12,10 @@ drmvm.unpack — Stage1 自己復号パッカーの脱壳
     plain_i = key_i ^ chunk_i
     key_{i+1} = (i^2) ^ (chunk_i + i + key_i)      ※ chunk は暗文側の値
   順方向（encrypt）も同型で可逆のため、roundtrip検証が可能。
+  ※ 鍵更新に加算キャリーが絡む逐次再帰のため、この層はベクトル化しない。
 
 Stage1 実行エミュレーションは Unicorn が導入されている環境でのみ動作
-（任意依存。nixpkgs の unicorn 2.1.4 で実績あり）。
+（任意依存）。
 """
 from __future__ import annotations
 
@@ -76,7 +77,7 @@ def find_descriptors(data: bytes, sig: int = DESCRIPTOR_SIG,
 class Stage1Runner:
     """Unicorn による Stage1 エミュレーション → 復号済みイメージの採取。
 
-    学マス実績: OEP 0x1400aa8a0 到達、Stage1 RVA 0xa8000..0xec000 を復号。
+    実績: OEP 0x1400aa8a0 到達、Stage1 RVA 0xa8000..0xec000 を復号。
     Unicorn が無い環境では RuntimeError。
     注意（実測教訓）: コードフック内の RIP 直接書換のみ有効（begin=end+1）、
     INTR フック redirect / emu_stop 後 resume は不可、0x7FF00000 番地は

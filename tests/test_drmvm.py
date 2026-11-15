@@ -4,32 +4,47 @@
 純標準ライブラリのみ・外部ダンプ不要で、パッケージ全体の意味論を
 合成データで検証する（実データとの突合はREADMEの実機検証チェックリスト参照）。
 
+NumPy が導入されている環境では、ベクトル化実装（drmvm.fastpath）と
+純Python実装の等価性検証も自動実行される。無い環境ではスキップされる。
+
 実行:  python3 tests/test_drmvm.py   （終了コード 0=全PASS）
 """
 import os
+import random
 import struct
 import sys
 import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from drmvm import (Descriptor, GAKUMAS, GAKUMAS_PATCH_G, HuffmanTable, Patch,
+from drmvm import (Descriptor, SAMPLE, SAMPLE_PATCH_G, HuffmanTable, Patch,
                    Pipeline, Rol13, SPN, build_table, decode_body, decrypt_stream,
                    encode_body, encrypt_stream, enumerate_prefixes_from_reference,
                    expand, find_descriptors, find_jmp_over_jmp, find_movabs,
                    filter_patch_l_by_lea, find_patch_l_candidates, get_profile,
                    imm64_le, load_image, recover_k0, recover_rol13_key,
                    scan_pattern, simulate_command, verify_patch, verify_patchset)
-from drmvm.ciphers import rol32, ror32
+from drmvm.ciphers import rol13_fwd_pure, rol13_inv_pure, rol32, ror32
+from drmvm.fastpath import HAVE_NUMPY
+from drmvm.pipeline import _recover_naive
 from drmvm.vmcode import BitReader, encode_stream
 
 M32 = 0xFFFFFFFF
 TESTS = []
 
 
+class SkipTest(Exception):
+    """環境依存（NumPy未導入等）でスキップする検証を表す。"""
+
+
 def test(fn):
     TESTS.append((fn.__name__, fn))
     return fn
+
+
+def requires_numpy():
+    if not HAVE_NUMPY:
+        raise SkipTest("numpy not installed")
 
 
 # ============================================================ 共通素材
@@ -45,7 +60,7 @@ CODES = {
     0x058: (0x13, 6),   # LIT 'X'
     0x059: (0x33, 7),   # LIT 'Y'
 }
-# 第58次AH開発時の修正済みテストプラン（LZに十分な履歴がある版）
+# 実測で修正済みのテストプラン（LZに十分な履歴がある版）
 PLAN = [0x041, 0x042, 0x302, 0x043, 0x058, 0x059, 0x102, 0x202]
 PLAN_OUT = b"ABABCXYXYXY"          # 11 bytes
 
@@ -82,7 +97,7 @@ def test_rol13_roundtrip():
 
 
 @test
-def test_rol13_recipies():
+def test_rol13_recipes():
     k = 0x12345678
     data = struct.pack("<2I", 0x11111111, 0x22222222)
     out = Rol13(k).fwd(data)
@@ -100,6 +115,13 @@ def test_rol13_derive_key():
     m0 = struct.unpack("<I", M)[0]
     s0 = struct.unpack("<I", S)[0]
     assert Rol13.derive_key(m0, s0) == K
+
+
+@test
+def test_rol13_pure_roundtrip():
+    k = 0xABCD1234
+    data = bytes((i * 7 + 3) & 0xFF for i in range(300))
+    assert rol13_inv_pure(k, rol13_fwd_pure(k, data)) == data
 
 
 @test
@@ -170,7 +192,9 @@ def test_build_table_rejects_conflict():
 @test
 def test_expand_plan():
     tbl = make_table()
-    S = encode_stream(PLAN, CODES)
+    # encode_stream のバイトパディングが末尾シンボルの root peek(8) を
+    # まかなう（実データでもストリームには余裕がある）
+    S = encode_stream(PLAN, CODES)          # 33bit -> 5B
     res = expand(S, len(PLAN_OUT), tbl)
     assert res.ok, res.error
     assert res.out == PLAN_OUT == b"ABABCXYXYXY"
@@ -256,6 +280,84 @@ def test_recover_rol13_key():
         pass
 
 
+@test
+def test_recover_key_staged_equivalence():
+    """段階的検証（最適化版）と単純実装の結果が一致すること。"""
+    tbl = make_table()
+    plan2 = PLAN + [0x043] * 10
+    ref2 = PLAN_OUT + b"C" * 10
+    K = 0x9E3779B9
+    M = Rol13(K).inv(encode_stream(plan2, CODES))
+    # 既定ウィンドウ
+    assert recover_rol13_key(M, ref2, len(ref2), tbl) == K
+    assert _recover_naive(M, ref2, len(ref2), tbl) == K
+    # 極小/極大ウィンドウでも同一結果
+    assert recover_rol13_key(M, ref2, len(ref2), tbl, window_dwords=1) == K
+    assert recover_rol13_key(M, ref2, len(ref2), tbl, window_dwords=64) == K
+    # 既知平文を壊した場合は両方とも None
+    broken = ref2[:-1] + bytes((ref2[-1] ^ 1,))
+    assert recover_rol13_key(M, broken, len(broken), tbl) is None
+    assert _recover_naive(M, broken, len(broken), tbl) is None
+
+
+# ============================================================ fastpath（NumPy）
+
+@test
+def test_fastpath_rol13_equivalence():
+    requires_numpy()
+    from drmvm import fastpath
+    rng = random.Random(0xC0FFEE)
+    for size in (0, 1, 3, 4, 15, 16, 63, 64, 255, 256, 1000):
+        data = bytes(rng.randrange(256) for _ in range(size))
+        for k in (0, 1, 0xDEADBEEF, 0xFFFFFFFF):
+            assert fastpath.rol13_fwd(k, data) == rol13_fwd_pure(k, data), (size, k)
+            assert fastpath.rol13_inv(k, data) == rol13_inv_pure(k, data), (size, k)
+
+
+@test
+def test_fastpath_rol13_batch_equivalence():
+    requires_numpy()
+    from drmvm import fastpath
+    rng = random.Random(0xBEEF)
+    data = bytes(rng.randrange(256) for _ in range(100))
+    keys = [0, 1, 0xAF27A866, 0x9E3779B9, 0xFFFFFFFF]
+    batch = fastpath.rol13_fwd_batch(data, keys)
+    assert len(batch) == len(keys)
+    for k, row in zip(keys, batch):
+        assert row == rol13_fwd_pure(k, data)
+
+
+@test
+def test_fastpath_spn_chain_equivalence():
+    requires_numpy()
+    from drmvm import fastpath
+    rng = random.Random(42)
+    sboxes = [[rng.randrange(1 << 32) for _ in range(256)] for _ in range(4)]
+    key = b"\x00\x01\x0e\x00" + bytes(rng.randrange(256)
+                                      for _ in range(0xF4 - 4))
+    spn = SPN(key, sboxes=sboxes)
+    assert spn.rounds == 7
+    for nb in (1, 2, 5, 33):
+        data = bytes(rng.randrange(256) for _ in range(16 * nb + 3))
+        fast = fastpath.spn_chain_fwd(key, spn.rounds, sboxes, data)
+        pure = spn._chain_fwd_loop(data)
+        assert fast == pure, nb
+
+
+@test
+def test_fastpath_recover_k0_equivalence():
+    requires_numpy()
+    from drmvm import fastpath
+    k0 = 0x1234
+    lo, hi = 0x1000, 0x1800
+    body = encode_body(b"-- Version\r\nhello world", k0)
+    assert fastpath.recover_k0(body, b"-- Version\r\n", lo, hi) == k0
+    # mailslot経由（NumPy自動選択）とも一致
+    assert recover_k0(body, b"-- Version\r\n", lo, hi) == k0
+    # 一致候補が無い範囲は None
+    assert fastpath.recover_k0(body, b"XXXXXXXX", lo, hi) is None
+
+
 # ============================================================ pipeline / config
 
 @test
@@ -272,7 +374,7 @@ def test_descriptor_parse():
 
 @test
 def test_config_profile():
-    cfg = get_profile("gakumas")
+    cfg = get_profile("sample")
     assert cfg.rol13_key == 0xAF27A866
     assert cfg.key_pair(0xA8000)[0] == 0x106256       # 高域
     assert cfg.key_pair(0xA7FFF)[0] == 0x1054C0       # 低域
@@ -320,7 +422,7 @@ def test_pipeline_e2e_identity_spn():
 
     desc = Descriptor(off1, len(stored), 0xB39EC, len(ref3))
     ident = SPN(b"\x00\x01\x0e\x00", t_func=lambda b: b)
-    pipe = Pipeline(GAKUMAS, bytes(image))
+    pipe = Pipeline(SAMPLE, bytes(image))
 
     out = pipe.decrypt_block(desc, rol13_key=K, spn=ident)
     assert out == ref3, (out[:16].hex(), ref3[:16].hex())
@@ -433,24 +535,50 @@ def test_patch_l_scan_and_lea_filter():
 def test_patch_g_definition():
     img = bytearray(0x100000)
     img[0xDDEB8:0xDDEBA] = b"\x75\x0a"
-    st = verify_patch(bytes(img), GAKUMAS_PATCH_G)
+    st = verify_patch(bytes(img), SAMPLE_PATCH_G)
     assert st.status == "ORIG_MATCH"
     assert st.patch.rva == 0xDDEB8
-    assert GAKUMAS_PATCH_G.new == b"\x90\x90"
+    assert SAMPLE_PATCH_G.new == b"\x90\x90"
+
+
+# ============================================================ cli
+
+@test
+def test_cli_mailslot_smoke():
+    import subprocess
+    k0 = 0xFFF8C5A3
+    plain = b"-- Version\r\ncli smoke"
+    with tempfile.TemporaryDirectory() as td:
+        body_path = os.path.join(td, "body.bin")
+        out_path = os.path.join(td, "plain.txt")
+        with open(body_path, "wb") as f:
+            f.write(encode_body(plain, k0))
+        repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        rc = subprocess.call([sys.executable, "-m", "drmvm.cli", "mailslot",
+                              body_path, "--k0", hex(k0), "--out", out_path],
+                             cwd=repo)
+        assert rc == 0
+        with open(out_path, "rb") as f:
+            assert f.read() == plain
 
 
 # ============================================================ runner
 
 def main() -> int:
     failed = 0
+    skipped = 0
     for name, fn in TESTS:
         try:
             fn()
             print(f"PASS  {name}")
+        except SkipTest as e:
+            skipped += 1
+            print(f"SKIP  {name}: {e}")
         except Exception as e:  # noqa: BLE001
             failed += 1
             print(f"FAIL  {name}: {type(e).__name__}: {e}")
-    print(f"\n{len(TESTS) - failed}/{len(TESTS)} passed")
+    print(f"\n{len(TESTS) - failed - skipped}/{len(TESTS)} passed"
+          f"{f' ({skipped} skipped)' if skipped else ''}")
     return 1 if failed else 0
 
 

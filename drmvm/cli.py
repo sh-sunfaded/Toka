@@ -3,16 +3,16 @@ drmvm.cli — コマンドラインインターフェース
 
 使用例:
     # 3段パイプラインでVMブロックを展開（鍵既知）
-    python -m drmvm.cli decrypt-block dump1.bin --desc 0xb39ec:0xc12:0xb39ec:0x14bc --out ref.bin
+    python -m drmvm.cli decrypt-block dump.bin --desc 0xb39ec:0xc12:0xb39ec:0x14bc --out ref.bin
 
     # 既知平文ブートストラップで鍵Kを回収
-    python -m drmvm.cli recover-key dump1.bin --desc 0xb39ec:0xc12:0xb39ec:0x14bc --ref v1d_block.bin
+    python -m drmvm.cli recover-key dump.bin --desc 0xb39ec:0xc12:0xb39ec:0x14bc --ref ref_block.bin
 
     # mailslot暗号ボディの復号（k0範囲走査）
     python -m drmvm.cli mailslot body.bin --out plain.txt
 
-    # Patch-L候補の走査 + Patch-G検証
-    python -m drmvm.cli scan-patches dump1.bin
+    # 既知パターン候補の走査 + サンプルパッチ検証
+    python -m drmvm.cli scan-patches dump.bin
 
     # movabs隠れコードの検出
     python -m drmvm.cli find-movabs code.bin
@@ -80,17 +80,17 @@ def cmd_mailslot(args) -> int:
 
 
 def cmd_scan_patches(args) -> int:
-    from .patches import (GAKUMAS_PATCH_G, filter_patch_l_by_lea,
+    from .patches import (SAMPLE_PATCH_G, filter_patch_l_by_lea,
                           find_patch_l_candidates, verify_patch)
     image = load_image(args.image)
     cands = find_patch_l_candidates(image)
     lea = filter_patch_l_by_lea(image, cands)
-    print(f"Patch-L candidates (shr rdx,0x20 sites): {len(cands)}"
+    print(f"shr rdx,0x20 sites: {len(cands)}"
           f" (with preceding lea rdx,[rsp+X]: {len(lea)})")
     for c in cands:
         print(f"  rva={c:#x}{'  <-- lea rdx,[rsp+X]' if c in lea else ''}")
-    st = verify_patch(image, GAKUMAS_PATCH_G)
-    print(f"Patch-G @ {st.patch.rva:#x}: {st.status} ({st.detail}) {st.patch.note}")
+    st = verify_patch(image, SAMPLE_PATCH_G)
+    print(f"sample patch @ {st.patch.rva:#x}: {st.status} ({st.detail}) {st.patch.note}")
     return 0
 
 
@@ -147,16 +147,16 @@ def cmd_enumerate(args) -> int:
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="drmvm",
-        description="DRM VM toolkit (SPN/rol13/Huffman pipeline)")
+        description="VM bytecode toolkit (SPN/rol13/Huffman pipeline)")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     def add_image(sp):
         sp.add_argument("image",
-                        help="dump image (RVA==offset, GKM_DUMP header auto-stripped)")
+                        help="dump image (RVA==offset, header auto-stripped)")
 
     sp = sub.add_parser("decrypt-block", help="decrypt+expand a VM block")
     add_image(sp)
-    sp.add_argument("--profile", default="gakumas", choices=sorted(PROFILES))
+    sp.add_argument("--profile", default="sample", choices=sorted(PROFILES))
     sp.add_argument("--desc", required=True, help="off1:size1:off2:size2")
     sp.add_argument("--key", help="rol13 key K (hex). default: profile value")
     sp.add_argument("--out", help="output file (default stdout)")
@@ -164,7 +164,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     sp = sub.add_parser("recover-key", help="known-plaintext bootstrap for rol13 key")
     add_image(sp)
-    sp.add_argument("--profile", default="gakumas", choices=sorted(PROFILES))
+    sp.add_argument("--profile", default="sample", choices=sorted(PROFILES))
     sp.add_argument("--desc", required=True)
     sp.add_argument("--ref", required=True, help="known expanded plaintext block")
     sp.set_defaults(func=cmd_recover_key)
@@ -175,7 +175,8 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--out")
     sp.set_defaults(func=cmd_mailslot)
 
-    sp = sub.add_parser("scan-patches", help="scan Patch-L candidates / verify Patch-G")
+    sp = sub.add_parser("scan-patches",
+                        help="scan known byte-pattern sites / verify sample patch")
     add_image(sp)
     sp.set_defaults(func=cmd_scan_patches)
 
@@ -195,7 +196,7 @@ def build_parser() -> argparse.ArgumentParser:
     sp = sub.add_parser("enumerate",
                         help="enumerate first-N-bit stream candidates from reference")
     add_image(sp)
-    sp.add_argument("--profile", default="gakumas", choices=sorted(PROFILES))
+    sp.add_argument("--profile", default="sample", choices=sorted(PROFILES))
     sp.add_argument("--desc", required=True)
     sp.add_argument("--ref", required=True, help="known expanded plaintext block")
     sp.add_argument("--bits", type=int, default=32)
