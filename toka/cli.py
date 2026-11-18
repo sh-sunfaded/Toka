@@ -20,6 +20,7 @@ import argparse
 import sys
 from typing import List, Optional
 
+from . import __version__
 from .config import PROFILES, get_profile
 from .pipeline import Descriptor, Pipeline, load_image
 
@@ -39,7 +40,14 @@ def cmd_decrypt_block(args) -> int:
     pipe = Pipeline(cfg, image)
     desc = Descriptor.parse(args.desc)
     key = int(args.key, 0) if args.key else None
-    out = pipe.decrypt_block(desc, rol13_key=key)
+    try:
+        out = pipe.decrypt_block(desc, rol13_key=key)
+    except (ValueError, IndexError, RuntimeError) as e:
+        print("FAILED: block did not decrypt/expand cleanly (%s). "
+              "Check --desc offsets/sizes and the rol13 key: recover it "
+              "with `toka recover-key` and pass it via --key, or set it "
+              "in the profile." % e, file=sys.stderr)
+        return 1
     _open_out(args.out, out)
     return 0
 
@@ -130,6 +138,8 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="toka",
         description="KONN packer format toolkit (SPN/rol13/Huffman pipeline)")
+    p.add_argument("--version", action="version",
+                   version="%(prog)s " + __version__)
     sub = p.add_subparsers(dest="cmd", required=True)
 
     def add_image(sp):

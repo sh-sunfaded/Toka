@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pytoka"
-version = "0.3.0"
+version = "0.3.1"
 description = "Toolkit for analyzing the KONN packer format (self-decrypting Stage0 packer, SPN chain cipher, rol13 rolling layer, Huffman/LZSS bytecode VM)"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -16,6 +16,7 @@ classifiers = [
     "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3",
     "Operating System :: OS Independent",
+    "Topic :: Security",
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 

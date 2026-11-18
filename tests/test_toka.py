@@ -525,6 +525,59 @@ def test_cli_mailslot_smoke():
             assert f.read() == plain
 
 
+@test
+def test_recover_key_short_stream_rejected():
+    tbl = HuffmanTable(build_table(CODES))
+    for short in (b"", b"\x01", b"\x01\x02\x03"):
+        try:
+            recover_rol13_key(short, b"AB", 2, tbl)
+            raise AssertionError("short M accepted: %r" % short)
+        except ValueError:
+            pass
+
+
+@test
+def test_cli_version_flag():
+    import subprocess
+    from toka import __version__
+    repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    out = subprocess.check_output(
+        [sys.executable, "-m", "toka.cli", "--version"], cwd=repo)
+    assert __version__.encode() in out
+
+
+@test
+def test_cli_decrypt_block_bad_key_clean_error():
+    import subprocess
+    import tempfile
+    tbl_raw = build_table(CODES)
+    S = encode_stream([0x041] * 130, CODES)
+    M = Rol13(0xDEADBEEF).inv(S)
+    stored = chain_inv_identity(M)
+    off2 = SAMPLE.expand_threshold
+    key_rva, key_size, tbl_rva, tbl_size = SAMPLE.key_pair(off2)
+    need = max(tbl_rva + tbl_size, 0x1000 + len(stored),
+               max(SAMPLE.sbox_rvas) + 0x400)
+    image = bytearray(need + 0x100)
+    image[tbl_rva:tbl_rva + len(tbl_raw)] = tbl_raw
+    image[key_rva:key_rva + key_size] = struct.pack("<HH", 0x0100, 0x0000) \
+        + b"\x00" * (key_size - 4)        # rounds=0 -> identity T
+    image[0x1000:0x1000 + len(stored)] = stored
+    with tempfile.TemporaryDirectory() as td:
+        dump_path = os.path.join(td, "dump.bin")
+        with open(dump_path, "wb") as f:
+            f.write(bytes(image))
+        repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        desc = "0x1000:%d:0x%x:130" % (len(stored), off2)
+        p = subprocess.run(
+            [sys.executable, "-m", "toka.cli", "decrypt-block", dump_path,
+             "--desc", desc, "--key", "0x1234"],
+            cwd=repo, capture_output=True, text=True)
+        assert p.returncode == 1, (p.returncode, p.stderr)
+        assert "FAILED" in p.stderr
+        assert "Traceback" not in p.stderr
+
+
 # ============================================================ runner
 
 def main() -> int:

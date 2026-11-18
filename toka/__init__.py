@@ -38,7 +38,7 @@ from .disasm import (MovabsSite, decode_imm64, find_jmp_over_jmp, find_movabs,
                      imm64_le, smart_disasm)
 from . import fastpath
 
-__version__ = "0.3.0"
+__version__ = "0.3.1"
 
 __all__ = [
     # config
