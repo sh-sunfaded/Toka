@@ -20,6 +20,7 @@ import argparse
 import sys
 from typing import List, Optional
 
+from . import __version__
 from .config import PROFILES, get_profile
 from .pipeline import Descriptor, Pipeline, load_image
 
@@ -130,6 +131,8 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="toka",
         description="KONN packer format toolkit (SPN/rol13/Huffman pipeline)")
+    p.add_argument("--version", action="version",
+                   version="%(prog)s " + __version__)
     sub = p.add_subparsers(dest="cmd", required=True)
 
     def add_image(sp):

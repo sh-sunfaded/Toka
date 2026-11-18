@@ -525,6 +525,27 @@ def test_cli_mailslot_smoke():
             assert f.read() == plain
 
 
+@test
+def test_recover_key_short_stream_rejected():
+    tbl = HuffmanTable(build_table(CODES))
+    for short in (b"", b"\x01", b"\x01\x02\x03"):
+        try:
+            recover_rol13_key(short, b"AB", 2, tbl)
+            raise AssertionError("short M accepted: %r" % short)
+        except ValueError:
+            pass
+
+
+@test
+def test_cli_version_flag():
+    import subprocess
+    from toka import __version__
+    repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    out = subprocess.check_output(
+        [sys.executable, "-m", "toka.cli", "--version"], cwd=repo)
+    assert __version__.encode() in out
+
+
 # ============================================================ runner
 
 def main() -> int:

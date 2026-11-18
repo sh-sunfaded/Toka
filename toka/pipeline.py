@@ -199,6 +199,9 @@ def recover_rol13_key(M: bytes, ref_expanded: bytes, out_size: int,
     各候補は (1) 先頭ウィンドウのみの展開で棄却 → (2) 生き残りのみ
     フル検証、の2段で処理される。結果は _recover_naive と同一。
     """
+    if len(M) < 4:
+        raise ValueError("M too short for rol13 key bootstrap "
+                         "(need >= 4 bytes, got %d)" % len(M))
     (m0,) = struct.unpack_from("<I", M, 0)
     ref = ref_expanded[:out_size]
     candidates = enumerate_prefixes_from_reference(table, ref, min_bits=32)
@@ -227,6 +230,9 @@ def _recover_naive(M: bytes, ref_expanded: bytes, out_size: int,
     recover_rol13_key の最適化前のロジック。結果は同一であることが
     テストで担保される。
     """
+    if len(M) < 4:
+        raise ValueError("M too short for rol13 key bootstrap "
+                         "(need >= 4 bytes, got %d)" % len(M))
     (m0,) = struct.unpack_from("<I", M, 0)
     ref = ref_expanded[:out_size]
     for s0 in enumerate_prefixes_from_reference(table, ref, min_bits=32):
