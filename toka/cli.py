@@ -40,7 +40,14 @@ def cmd_decrypt_block(args) -> int:
     pipe = Pipeline(cfg, image)
     desc = Descriptor.parse(args.desc)
     key = int(args.key, 0) if args.key else None
-    out = pipe.decrypt_block(desc, rol13_key=key)
+    try:
+        out = pipe.decrypt_block(desc, rol13_key=key)
+    except (ValueError, IndexError, RuntimeError) as e:
+        print("FAILED: block did not decrypt/expand cleanly (%s). "
+              "Check --desc offsets/sizes and the rol13 key: recover it "
+              "with `toka recover-key` and pass it via --key, or set it "
+              "in the profile." % e, file=sys.stderr)
+        return 1
     _open_out(args.out, out)
     return 0
 

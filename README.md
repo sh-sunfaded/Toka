@@ -76,6 +76,9 @@ Git からではなくソースツリーを直接使う場合は `PYTHONPATH=.` 
 ## CLI 使用例
 
 ```bash
+# バージョン確認
+toka --version
+
 # VMブロックを3段で展開（鍵はプロファイル値）
 toka decrypt-block dump.bin --desc 0x1000:0x40:0x1000:0x80 --out ref.bin
 
@@ -93,6 +96,15 @@ toka stage0 packed.bin
 ```
 
 （`python -m toka.cli` でも同一インターフェース）
+
+上流ツール連携: izayoi の `pairs` が出力する記述子
+`off1:size1:off2:size2` はそのまま `--desc` に渡せる。
+
+## 入力形式
+
+- VMブロックの入力ダンプは **RVA==ファイルオフセット** 形式を想定
+- 一部の採取ツールが先頭に付けるテキストヘッダ
+  （例: `REGION ... addr=... size=...` + 改行）は `load_image` が自動除去する
 
 ## Python API
 
@@ -159,10 +171,24 @@ NumPy が導入されている環境では、ホットパスが自動的にベ�
    `key0 = (~size + initKey)` で導出。記述子の実測フィールドから
    size・initKey を正しく取ること（roundtrip で検証）。
 
+## 関連ツール
+
+同じメモリフォレンジックの流れで併用できる姉妹ツール:
+
+- [izayoi](https://github.com/sh-sunfaded/izayoi) — 複数時点ダンプの比較・トリアージ。`pairs` が出力する記述子 `off1:size1:off2:size2` は本ツールの `--desc` にそのまま渡せる
+- [Sekka](https://github.com/sh-sunfaded/Sekka) — x64 PE 例外テーブル(.pdata)の静的解析。展開後の平文イメージから関数境界・例外ハンドラを引ける
+
+## 制限
+
+- 同梱のSAMPLEプロファイルは合成レイアウト（実測値を含まない）。対象固有の配置はユーザー定義プロファイルで与える
+- SPN `T()` のラウンド内演算順など、解析からの再構成に依存する箇所は実機突合チェックリストの検証が前提
+- Stage1 のエミュレーション（unicorn）と命令デコード（capstone）は任意依存。未導入でも Stage0 / Stage2 は動作する
+- 対象は x86-64 イメージ
+
 ## テスト
 
 ```bash
-python3 tests/test_toka.py    # 30チェック・合成データのみ・外部ダンプ不要
+python3 tests/test_toka.py    # 33チェック・合成データのみ・外部ダンプ不要
 ```
 
 NumPy が導入された環境では、ベクトル化実装と純Python実装の
